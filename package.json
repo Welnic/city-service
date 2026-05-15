@@ -1,0 +1,11 @@
+{
+  "name": "city-service",
+  "version": "1.0.0",
+  "description": "City Service website",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "keywords": [],
+  "license": "ISC"
+}
