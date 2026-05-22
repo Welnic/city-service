@@ -1,0 +1,115 @@
+{
+  "name": "Sync LABBIS Systems to Directus",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://bengal-test.mcs.lt/api/v1/labbis/Systemos",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "rowsPerPage",
+              "value": "2000"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "fetch_labbis",
+      "name": "Fetch Systems from LABBIS",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [220, 0],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "LABBIS_API_CREDENTIAL_ID",
+          "name": "LABBIS API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const s = item.json;\n  results.push({\n    json: {\n      id: s.SystemosId,\n      name: s.SystemosName || '',\n      system_group_id: s.SystGroupId || null,\n      labbis_id: s.SystemosId\n    }\n  });\n}\n\nreturn results;"
+      },
+      "id": "map_fields",
+      "name": "Map to Directus Schema",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://directus:8055/items/systems",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "upsert_directus",
+      "name": "Insert to Directus",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 0],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "DIRECTUS_CREDENTIAL_ID",
+          "name": "Directus Admin Token"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nlet created = 0;\nlet skipped = 0;\nlet errors = 0;\n\nfor (const item of items) {\n  const status = item.json?.statusCode;\n  if (status === 200 || status === 204 || item.json?.data?.id) {\n    created++;\n  } else if (status === 400 && JSON.stringify(item.json).includes('unique')) {\n    skipped++;\n  } else {\n    errors++;\n  }\n}\n\nreturn [{\n  json: {\n    total_processed: items.length,\n    created,\n    skipped,\n    errors,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "summary",
+      "name": "Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 0]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [[{ "node": "Fetch Systems from LABBIS", "type": "main", "index": 0 }]]
+    },
+    "Fetch Systems from LABBIS": {
+      "main": [[{ "node": "Map to Directus Schema", "type": "main", "index": 0 }]]
+    },
+    "Map to Directus Schema": {
+      "main": [[{ "node": "Insert to Directus", "type": "main", "index": 0 }]]
+    },
+    "Insert to Directus": {
+      "main": [[{ "node": "Summary", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

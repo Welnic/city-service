@@ -1,0 +1,200 @@
+{
+  "name": "Sync LABBIS Defect Act Jobs to Directus",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://directus:8055/items/defect_acts",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "id,labbis_id"
+            },
+            {
+              "name": "limit",
+              "value": "-1"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "fetch_defect_acts",
+      "name": "Fetch Defect Acts from Directus",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [220, 0],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "DIRECTUS_CREDENTIAL_ID",
+          "name": "Directus Admin Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract the defect acts array from Directus response\nconst response = $input.first().json;\nconst defectActs = response.data || response || [];\nconst results = [];\n\nfor (const da of defectActs) {\n  results.push({\n    json: {\n      defect_act_directus_id: da.id,\n      labbis_id: da.labbis_id || da.id\n    }\n  });\n}\n\nreturn results;"
+      },
+      "id": "extract_ids",
+      "name": "Extract Defect Act IDs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://bengal-test.mcs.lt/api/v1/labbis/DefectAct/{{ $json.labbis_id }}/Job",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "batching": {
+            "batch": {
+              "batchSize": 10,
+              "batchInterval": 500
+            }
+          }
+        }
+      },
+      "id": "fetch_jobs",
+      "name": "Fetch Jobs from LABBIS",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 0],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "LABBIS_API_CREDENTIAL_ID",
+          "name": "LABBIS API Key"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const data = item.json;\n\n  // Skip error responses or empty results\n  if (data.statusCode && data.statusCode >= 400) continue;\n  if (!data.DefectActJobId && !Array.isArray(data)) continue;\n\n  // Handle single job object\n  if (data.DefectActJobId) {\n    // Get the parent defect act ID from the paired input item\n    const parentId = $('Extract Defect Act IDs').item.json.defect_act_directus_id;\n    results.push({\n      json: {\n        id: data.DefectActJobId,\n        defect_act_id: parentId,\n        description: data.Description || null,\n        amount: data.Amount ?? null,\n        price: data.Price ?? null,\n        unit: data.UoMId || null,\n        labbis_id: data.DefectActJobId\n      }\n    });\n  }\n}\n\nreturn results.length > 0 ? results : [{ json: { _empty: true } }];"
+      },
+      "id": "map_fields",
+      "name": "Map Jobs to Directus Schema",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "filter_empty",
+              "leftValue": "={{ $json._empty }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notTrue"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "filter_empty",
+      "name": "Filter Empty",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [1100, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://directus:8055/items/defect_act_jobs",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "upsert_directus",
+      "name": "Insert to Directus",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1320, 0],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "DIRECTUS_CREDENTIAL_ID",
+          "name": "Directus Admin Token"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nlet created = 0;\nlet skipped = 0;\nlet errors = 0;\n\nfor (const item of items) {\n  const status = item.json?.statusCode;\n  if (status === 200 || status === 204 || item.json?.data?.id) {\n    created++;\n  } else if (status === 400 && JSON.stringify(item.json).includes('unique')) {\n    skipped++;\n  } else {\n    errors++;\n  }\n}\n\nreturn [{\n  json: {\n    total_processed: items.length,\n    created,\n    skipped,\n    errors,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "summary",
+      "name": "Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1540, 0]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [[{ "node": "Fetch Defect Acts from Directus", "type": "main", "index": 0 }]]
+    },
+    "Fetch Defect Acts from Directus": {
+      "main": [[{ "node": "Extract Defect Act IDs", "type": "main", "index": 0 }]]
+    },
+    "Extract Defect Act IDs": {
+      "main": [[{ "node": "Fetch Jobs from LABBIS", "type": "main", "index": 0 }]]
+    },
+    "Fetch Jobs from LABBIS": {
+      "main": [[{ "node": "Map Jobs to Directus Schema", "type": "main", "index": 0 }]]
+    },
+    "Map Jobs to Directus Schema": {
+      "main": [[{ "node": "Filter Empty", "type": "main", "index": 0 }]]
+    },
+    "Filter Empty": {
+      "main": [[{ "node": "Insert to Directus", "type": "main", "index": 0 }]]
+    },
+    "Insert to Directus": {
+      "main": [[{ "node": "Summary", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
