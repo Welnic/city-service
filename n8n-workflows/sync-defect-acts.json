@@ -1,0 +1,119 @@
+{
+  "name": "Sync LABBIS Defect Acts to Directus",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://bengal-test.mcs.lt/api/v1/labbis/DefectAct",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "rowsPerPage",
+              "value": "2000"
+            },
+            {
+              "name": "pageNumber",
+              "value": "1"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "fetch_labbis",
+      "name": "Fetch DefectActs from LABBIS",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [220, 0],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "LABBIS_API_CREDENTIAL_ID",
+          "name": "LABBIS API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const da = item.json;\n  results.push({\n    json: {\n      id: da.DefectActId,\n      act_number: da.ActNumber || null,\n      defect_date: da.DefectActDate || null,\n      object_id: da.ObjectId || null,\n      problem: da.Problem || null,\n      place: da.Place || null,\n      description: da.Description || null,\n      solution: da.Solution || null,\n      status: da.Status || 'Unknown',\n      system_id: da.SystemosId || null,\n      system_group_id: da.SystGroupId || null,\n      inspection_date: da.InspectionDate || null,\n      clerk_id: da.ClerkId || null,\n      owner_id: da.OwningSystemUserId || null,\n      labbis_id: da.DefectActId\n    }\n  });\n}\n\nreturn results;"
+      },
+      "id": "map_fields",
+      "name": "Map to Directus Schema",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://directus:8055/items/defect_acts",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "upsert_directus",
+      "name": "Insert to Directus",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 0],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "DIRECTUS_CREDENTIAL_ID",
+          "name": "Directus Admin Token"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nlet created = 0;\nlet skipped = 0;\nlet errors = 0;\n\nfor (const item of items) {\n  const status = item.json?.statusCode;\n  if (status === 200 || status === 204 || item.json?.data?.id) {\n    created++;\n  } else if (status === 400 && JSON.stringify(item.json).includes('unique')) {\n    skipped++;\n  } else {\n    errors++;\n  }\n}\n\nreturn [{\n  json: {\n    total_processed: items.length,\n    created,\n    skipped,\n    errors,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "summary",
+      "name": "Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 0]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [[{ "node": "Fetch DefectActs from LABBIS", "type": "main", "index": 0 }]]
+    },
+    "Fetch DefectActs from LABBIS": {
+      "main": [[{ "node": "Map to Directus Schema", "type": "main", "index": 0 }]]
+    },
+    "Map to Directus Schema": {
+      "main": [[{ "node": "Insert to Directus", "type": "main", "index": 0 }]]
+    },
+    "Insert to Directus": {
+      "main": [[{ "node": "Summary", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
