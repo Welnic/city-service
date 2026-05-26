@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useMemo } from "react"
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import {
   CheckCircle,
   AlertCircle,
@@ -11,126 +12,30 @@ import {
   ChevronDown,
   Check,
   X,
+  Loader2,
 } from "lucide-react"
+import { fetchNotifications, markNotificationRead } from "@/lib/directus-api"
 
 type Notification = {
-  id: number
-  icon: typeof CheckCircle
-  iconColor: string
-  iconBg: string
+  id: string
+  userId: string | null
+  type: "status" | "comment" | "assignment" | "completion" | "postponed" | "warranty"
   title: string
   description: string
-  date: string
   reference: string
-  unread: boolean
-  type: "status" | "comment" | "assignment" | "completion" | "postponed" | "warranty"
+  referenceId: string | null
+  isRead: boolean
+  dateCreated: string
 }
 
-const initialNotifications: Notification[] = [
-  {
-    id: 1,
-    icon: ArrowRightLeft,
-    iconColor: "text-[#6B1D1D]",
-    iconBg: "bg-[#6B1D1D]/10",
-    title: "Defect status changed",
-    description:
-      'Defect DEV-00000847 changed from "Awaiting approval" to "In Progress"',
-    date: "2025-10-24",
-    reference: "DEV-00000847",
-    unread: true,
-    type: "status",
-  },
-  {
-    id: 2,
-    icon: Pause,
-    iconColor: "text-amber-600",
-    iconBg: "bg-amber-50",
-    title: "Defect postponed",
-    description:
-      "Defect DEV-00000823 postponed for 3 days. New deadline: 2025-10-28",
-    date: "2025-10-24",
-    reference: "DEV-00000823",
-    unread: true,
-    type: "postponed",
-  },
-  {
-    id: 3,
-    icon: MessageCircle,
-    iconColor: "text-blue-600",
-    iconBg: "bg-blue-50",
-    title: "New comment",
-    description:
-      "Technical specialist left a comment on defect DEV-00000901",
-    date: "2025-10-23",
-    reference: "DEV-00000901",
-    unread: false,
-    type: "comment",
-  },
-  {
-    id: 4,
-    icon: CheckCircle,
-    iconColor: "text-emerald-600",
-    iconBg: "bg-emerald-50",
-    title: "Defect completed",
-    description: "Defect DEV-00000789 was completed and approved",
-    date: "2025-10-22",
-    reference: "DEV-00000789",
-    unread: false,
-    type: "completion",
-  },
-  {
-    id: 5,
-    icon: ArrowRightLeft,
-    iconColor: "text-[#6B1D1D]",
-    iconBg: "bg-[#6B1D1D]/10",
-    title: "Defect status changed",
-    description:
-      'Defect DEV-00000812 changed from "In Progress" to "Under Review"',
-    date: "2025-10-22",
-    reference: "DEV-00000812",
-    unread: false,
-    type: "status",
-  },
-  {
-    id: 6,
-    icon: AlertCircle,
-    iconColor: "text-red-600",
-    iconBg: "bg-red-50",
-    title: "Warranty claim declined",
-    description:
-      'The warranty claim for "Heating System Failure - Building A" was declined by the manufacturer.',
-    date: "2025-10-21",
-    reference: "DEV-00000756",
-    unread: false,
-    type: "warranty",
-  },
-  {
-    id: 7,
-    icon: Clock,
-    iconColor: "text-violet-600",
-    iconBg: "bg-violet-50",
-    title: "Defect assigned to contractor",
-    description:
-      'Defect "Water Leak - Building B" has been assigned to Nordic Plumbing Services.',
-    date: "2025-10-21",
-    reference: "DEV-00000734",
-    unread: false,
-    type: "assignment",
-  },
-  {
-    id: 8,
-    icon: MessageCircle,
-    iconColor: "text-blue-600",
-    iconBg: "bg-blue-50",
-    title: "New comment",
-    description:
-      "Facility manager replied to your comment on defect DEV-00000698",
-    date: "2025-10-20",
-    reference: "DEV-00000698",
-    unread: false,
-    type: "comment",
-  },
-]
+const typeIcons: Record<string, { icon: typeof CheckCircle; color: string; bg: string }> = {
+  status: { icon: ArrowRightLeft, color: "text-[#6B1D1D]", bg: "bg-[#6B1D1D]/10" },
+  comment: { icon: MessageCircle, color: "text-blue-600", bg: "bg-blue-50" },
+  assignment: { icon: Clock, color: "text-violet-600", bg: "bg-violet-50" },
+  completion: { icon: CheckCircle, color: "text-emerald-600", bg: "bg-emerald-50" },
+  postponed: { icon: Pause, color: "text-amber-600", bg: "bg-amber-50" },
+  warranty: { icon: AlertCircle, color: "text-red-600", bg: "bg-red-50" },
+}
 
 const objectTypes = [
   { label: "All objects", value: "all" },
@@ -143,7 +48,7 @@ const objectTypes = [
 ]
 
 function formatDate(dateStr: string) {
-  const date = new Date(dateStr + "T00:00:00")
+  const date = new Date(dateStr)
   return date.toLocaleDateString("en-US", {
     month: "2-digit",
     day: "2-digit",
@@ -154,7 +59,8 @@ function formatDate(dateStr: string) {
 function groupLabel(dateStr: string): string {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
-  const date = new Date(dateStr + "T00:00:00")
+  const date = new Date(dateStr)
+  date.setHours(0, 0, 0, 0)
   const diffDays = Math.floor(
     (today.getTime() - date.getTime()) / (1000 * 60 * 60 * 24)
   )
@@ -165,25 +71,39 @@ function groupLabel(dateStr: string): string {
 }
 
 export default function NotificationsPage() {
-  const [notifications, setNotifications] = useState(initialNotifications)
+  const queryClient = useQueryClient()
+
+  const notificationsQuery = useQuery({
+    queryKey: ["notifications"],
+    queryFn: fetchNotifications,
+  })
+
+  const notifications = (notificationsQuery.data as Notification[]) ?? []
+
+  const markReadMutation = useMutation({
+    mutationFn: markNotificationRead,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications"] }),
+  })
+
   const [activeTab, setActiveTab] = useState<"all" | "unread">("all")
   const [objectFilter, setObjectFilter] = useState("all")
   const [showObjectDropdown, setShowObjectDropdown] = useState(false)
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set())
 
-  const unreadCount = notifications.filter((n) => n.unread).length
+  const unreadCount = notifications.filter((n) => !n.isRead).length
 
   const filtered = useMemo(() => {
-    let items = notifications
-    if (activeTab === "unread") items = items.filter((n) => n.unread)
+    let items = notifications.filter((n) => !dismissed.has(n.id))
+    if (activeTab === "unread") items = items.filter((n) => !n.isRead)
     if (objectFilter !== "all")
       items = items.filter((n) => n.type === objectFilter)
     return items
-  }, [notifications, activeTab, objectFilter])
+  }, [notifications, activeTab, objectFilter, dismissed])
 
   const grouped = useMemo(() => {
     const groups: { label: string; items: Notification[] }[] = []
     for (const item of filtered) {
-      const label = groupLabel(item.date)
+      const label = groupLabel(item.dateCreated)
       const existing = groups.find((g) => g.label === label)
       if (existing) {
         existing.items.push(item)
@@ -194,22 +114,24 @@ export default function NotificationsPage() {
     return groups
   }, [filtered])
 
-  function markAsRead(id: number) {
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, unread: false } : n))
-    )
+  function handleMarkAsRead(id: string) {
+    markReadMutation.mutate(id)
   }
 
-  function markAllAsRead() {
-    setNotifications((prev) => prev.map((n) => ({ ...n, unread: false })))
+  function handleMarkAllAsRead() {
+    for (const n of notifications.filter((n) => !n.isRead)) {
+      markReadMutation.mutate(n.id)
+    }
   }
 
-  function dismiss(id: number) {
-    setNotifications((prev) => prev.filter((n) => n.id !== id))
+  function dismiss(id: string) {
+    setDismissed((prev) => new Set(prev).add(id))
   }
 
   const selectedObjectLabel =
     objectTypes.find((o) => o.value === objectFilter)?.label ?? "All objects"
+
+  const isLoading = notificationsQuery.isLoading
 
   return (
     <div className="space-y-6">
@@ -307,7 +229,7 @@ export default function NotificationsPage() {
 
         {unreadCount > 0 && (
           <button
-            onClick={markAllAsRead}
+            onClick={handleMarkAllAsRead}
             className="text-sm font-medium text-[#6B1D1D] hover:underline transition-colors"
           >
             Mark all as read
@@ -315,8 +237,16 @@ export default function NotificationsPage() {
         )}
       </div>
 
+      {/* Loading */}
+      {isLoading && (
+        <div className="flex items-center justify-center py-16">
+          <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+          <span className="ml-2 text-sm text-gray-500">Loading notifications...</span>
+        </div>
+      )}
+
       {/* Notification Cards - Grouped */}
-      {grouped.length === 0 ? (
+      {!isLoading && grouped.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 py-16">
           <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gray-100">
             <CheckCircle className="h-6 w-6 text-gray-400" />
@@ -339,26 +269,27 @@ export default function NotificationsPage() {
               </p>
               <div className="space-y-2">
                 {group.items.map((notification) => {
-                  const Icon = notification.icon
+                  const typeConfig = typeIcons[notification.type] ?? typeIcons.status
+                  const Icon = typeConfig.icon
                   return (
                     <div
                       key={notification.id}
                       className={`group relative flex gap-4 rounded-xl border p-4 transition-all ${
-                        notification.unread
+                        !notification.isRead
                           ? "border-gray-200 bg-white shadow-sm"
                           : "border-gray-100 bg-gray-50/50 hover:bg-gray-50"
                       }`}
                     >
                       {/* Unread indicator */}
-                      {notification.unread && (
+                      {!notification.isRead && (
                         <span className="absolute top-4 right-4 h-2.5 w-2.5 rounded-full bg-[#6B1D1D]" />
                       )}
 
                       {/* Hover actions */}
                       <div className="absolute top-3 right-3 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                        {notification.unread && (
+                        {!notification.isRead && (
                           <button
-                            onClick={() => markAsRead(notification.id)}
+                            onClick={() => handleMarkAsRead(notification.id)}
                             title="Mark as read"
                             className="rounded-md p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
                           >
@@ -376,7 +307,7 @@ export default function NotificationsPage() {
 
                       {/* Icon */}
                       <div
-                        className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${notification.iconBg} ${notification.iconColor}`}
+                        className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full ${typeConfig.bg} ${typeConfig.color}`}
                       >
                         <Icon className="h-4.5 w-4.5" />
                       </div>
@@ -385,7 +316,7 @@ export default function NotificationsPage() {
                       <div className="min-w-0 flex-1 space-y-1">
                         <h3
                           className={`text-sm ${
-                            notification.unread
+                            !notification.isRead
                               ? "font-semibold text-gray-900"
                               : "font-medium text-gray-700"
                           }`}
@@ -397,7 +328,7 @@ export default function NotificationsPage() {
                         </p>
                         <div className="flex items-center gap-3 pt-0.5">
                           <span className="text-xs text-gray-400">
-                            {formatDate(notification.date)}
+                            {notification.dateCreated ? formatDate(notification.dateCreated) : ""}
                           </span>
                           <span className="text-xs font-medium text-[#6B1D1D] hover:underline cursor-pointer">
                             {notification.reference}

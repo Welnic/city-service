@@ -1,5 +1,5 @@
 {
-  "name": "Sync LABBIS Defect Acts to Directus (with status mapping + dedup + FK validation)",
+  "name": "Load Defect Acts from Mirror to Dashboard (with dynamic status + FK validation)",
   "nodes": [
     {
       "parameters": {},
@@ -14,7 +14,7 @@
         "method": "GET",
         "url": "http://directus:8055/items/defect_acts",
         "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
+        "genericAuthType": "httpBearerAuth",
         "sendQuery": true,
         "queryParameters": {
           "parameters": [
@@ -32,7 +32,7 @@
       "typeVersion": 4.2,
       "position": [220, 0],
       "credentials": {
-        "httpHeaderAuth": { "id": "DIRECTUS_CREDENTIAL_ID", "name": "Directus Admin Token" }
+        "httpBearerAuth": { "id": "DIRECTUS_CREDENTIAL_ID", "name": "Directus Admin Token" }
       }
     },
     {
@@ -40,7 +40,7 @@
         "method": "GET",
         "url": "http://directus:8055/items/systems",
         "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
+        "genericAuthType": "httpBearerAuth",
         "sendQuery": true,
         "queryParameters": {
           "parameters": [
@@ -58,7 +58,7 @@
       "typeVersion": 4.2,
       "position": [440, 0],
       "credentials": {
-        "httpHeaderAuth": { "id": "DIRECTUS_CREDENTIAL_ID", "name": "Directus Admin Token" }
+        "httpBearerAuth": { "id": "DIRECTUS_CREDENTIAL_ID", "name": "Directus Admin Token" }
       }
     },
     {
@@ -66,7 +66,7 @@
         "method": "GET",
         "url": "http://directus:8055/items/system_groups",
         "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
+        "genericAuthType": "httpBearerAuth",
         "sendQuery": true,
         "queryParameters": {
           "parameters": [
@@ -84,7 +84,7 @@
       "typeVersion": 4.2,
       "position": [660, 0],
       "credentials": {
-        "httpHeaderAuth": { "id": "DIRECTUS_CREDENTIAL_ID", "name": "Directus Admin Token" }
+        "httpBearerAuth": { "id": "DIRECTUS_CREDENTIAL_ID", "name": "Directus Admin Token" }
       }
     },
     {
@@ -92,7 +92,7 @@
         "method": "GET",
         "url": "http://directus:8055/items/objects",
         "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
+        "genericAuthType": "httpBearerAuth",
         "sendQuery": true,
         "queryParameters": {
           "parameters": [
@@ -110,65 +110,68 @@
       "typeVersion": 4.2,
       "position": [880, 0],
       "credentials": {
-        "httpHeaderAuth": { "id": "DIRECTUS_CREDENTIAL_ID", "name": "Directus Admin Token" }
+        "httpBearerAuth": { "id": "DIRECTUS_CREDENTIAL_ID", "name": "Directus Admin Token" }
       }
     },
     {
       "parameters": {
         "method": "GET",
-        "url": "https://bengal-test.mcs.lt/api/v1/labbis/DefectAct",
+        "url": "http://directus:8055/items/labbis_pick_list_value",
         "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
+        "genericAuthType": "httpBearerAuth",
         "sendQuery": true,
         "queryParameters": {
           "parameters": [
-            { "name": "rowsPerPage", "value": "200" },
-            { "name": "orderBy", "value": "DefectActDate desc" },
-            { "name": "fields", "value": "DefectActId;ActNumber;DefectActDate;ObjectId;Problem;Place;Status;Description;Solution;SystemosId;SystGroupId;ClerkId;CreatedOn" }
+            { "name": "fields", "value": "GuidId,Title" },
+            { "name": "limit", "value": "-1" }
           ]
         },
         "options": {
           "response": { "response": { "responseFormat": "json" } }
         }
       },
-      "id": "fetch_labbis",
-      "name": "Fetch DefectActs from LABBIS",
+      "id": "fetch_pick_list",
+      "name": "Fetch PickList Values",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [1100, 0],
       "credentials": {
-        "httpHeaderAuth": { "id": "LABBIS_API_CREDENTIAL_ID", "name": "LABBIS API Key" }
+        "httpBearerAuth": { "id": "DIRECTUS_CREDENTIAL_ID", "name": "Directus Admin Token" }
       }
     },
     {
       "parameters": {
-        "jsCode": "// TODO: Replace with dynamic PickList fetch when PickListValue response shape is known\nconst STATUS_MAP = {\n  'db901732-a91a-4d18-8530-7df2f8a155e7': 'Completed',\n  '43a503e3-9e9b-40b8-8c9c-3bef59371a15': 'In Progress',\n  '360bd67b-249d-42d0-b32e-5ec16c8c74bc': 'New',\n  '386d2e1b-b6a8-45c5-b10a-1e495fe956d9': 'On Hold',\n  'c076d20b-b3d4-467a-b1d4-dfe24ff4b279': 'Cancelled',\n  '132ceb39-d54d-4f84-a091-34d940953586': 'Rejected',\n  'fa324ff1-7078-4d87-a014-d4697b6317c0': 'Reopened',\n};\n\nconst existingResponse = $('Fetch Existing DefectActs').first().json;\nconst existingIds = new Set((existingResponse.data || []).map(d => d.labbis_id));\n\nconst validSystems = new Set(($('Fetch Valid Systems').first().json.data || []).map(d => d.id));\nconst validGroups = new Set(($('Fetch Valid SystGroups').first().json.data || []).map(d => d.id));\nconst validObjects = new Set(($('Fetch Valid Objects').first().json.data || []).map(d => d.id));\n\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const da = item.json;\n  if (!da.DefectActId) continue;\n  if (existingIds.has(da.DefectActId)) continue;\n\n  results.push({\n    json: {\n      id: da.DefectActId,\n      act_number: da.ActNumber || null,\n      defect_date: da.DefectActDate || null,\n      object_id: (da.ObjectId && validObjects.has(da.ObjectId)) ? da.ObjectId : null,\n      problem: da.Problem || null,\n      place: da.Place || null,\n      status: STATUS_MAP[da.Status] || da.Status || 'Unknown',\n      priority: null,\n      description: da.Description || null,\n      solution: da.Solution || null,\n      system_id: (da.SystemosId && validSystems.has(da.SystemosId)) ? da.SystemosId : null,\n      system_group_id: (da.SystGroupId && validGroups.has(da.SystGroupId)) ? da.SystGroupId : null,\n      labbis_id: da.DefectActId\n    }\n  });\n}\n\nreturn results.length > 0 ? results : [{ json: { _empty: true } }];"
+        "method": "GET",
+        "url": "http://directus:8055/items/labbis_defect_act",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "fields", "value": "DefectActId,ActNumber,DefectActDate,ObjectId,Problem,Place,Status,Description,Solution,SystemosId,SystGroupId" },
+            { "name": "limit", "value": "-1" }
+          ]
+        },
+        "options": {
+          "response": { "response": { "responseFormat": "json" } }
+        }
+      },
+      "id": "fetch_mirror",
+      "name": "Fetch from Mirror",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1320, 0],
+      "credentials": {
+        "httpBearerAuth": { "id": "DIRECTUS_CREDENTIAL_ID", "name": "Directus Admin Token" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const pickListResponse = $('Fetch PickList Values').first().json;\nconst pickListItems = pickListResponse.data || [];\nconst statusMap = new Map();\nfor (const plv of pickListItems) {\n  if (plv.GuidId && plv.Title) {\n    statusMap.set(plv.GuidId, plv.Title);\n  }\n}\n\nconst existingResponse = $('Fetch Existing DefectActs').first().json;\nconst existingIds = new Set((existingResponse.data || []).map(d => d.labbis_id));\n\nconst validSystems = new Set(($('Fetch Valid Systems').first().json.data || []).map(d => d.id));\nconst validGroups = new Set(($('Fetch Valid SystGroups').first().json.data || []).map(d => d.id));\nconst validObjects = new Set(($('Fetch Valid Objects').first().json.data || []).map(d => d.id));\n\nconst mirrorResponse = $input.first().json;\nconst mirrorItems = mirrorResponse.data || [];\nconst results = [];\n\nfor (const da of mirrorItems) {\n  if (!da.DefectActId) continue;\n  if (existingIds.has(da.DefectActId)) continue;\n\n  results.push({\n    json: {\n      id: da.DefectActId,\n      act_number: da.ActNumber || null,\n      defect_date: da.DefectActDate || null,\n      object_id: (da.ObjectId && validObjects.has(da.ObjectId)) ? da.ObjectId : null,\n      problem: da.Problem || null,\n      place: da.Place || null,\n      status: statusMap.get(da.Status) || da.Status || 'Unknown',\n      description: da.Description || null,\n      solution: da.Solution || null,\n      system_id: (da.SystemosId && validSystems.has(da.SystemosId)) ? da.SystemosId : null,\n      system_group_id: (da.SystGroupId && validGroups.has(da.SystGroupId)) ? da.SystGroupId : null,\n      labbis_id: da.DefectActId\n    }\n  });\n}\n\nreturn results;"
       },
       "id": "map_fields",
       "name": "Map + Status + Dedup + FK Validate",
       "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [1320, 0]
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
-          "conditions": [
-            {
-              "id": "filter_empty",
-              "leftValue": "={{ $json._empty }}",
-              "rightValue": true,
-              "operator": { "type": "boolean", "operation": "notTrue" }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "id": "filter_empty",
-      "name": "Filter Empty",
-      "type": "n8n-nodes-base.filter",
       "typeVersion": 2,
       "position": [1540, 0]
     },
@@ -177,7 +180,7 @@
         "method": "POST",
         "url": "http://directus:8055/items/defect_acts",
         "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
+        "genericAuthType": "httpBearerAuth",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify($json) }}",
@@ -186,12 +189,12 @@
         }
       },
       "id": "upsert_directus",
-      "name": "Insert to Directus",
+      "name": "Insert to Dashboard",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [1760, 0],
       "credentials": {
-        "httpHeaderAuth": { "id": "DIRECTUS_CREDENTIAL_ID", "name": "Directus Admin Token" }
+        "httpBearerAuth": { "id": "DIRECTUS_CREDENTIAL_ID", "name": "Directus Admin Token" }
       },
       "onError": "continueRegularOutput"
     },
@@ -220,18 +223,18 @@
       "main": [[{ "node": "Fetch Valid Objects", "type": "main", "index": 0 }]]
     },
     "Fetch Valid Objects": {
-      "main": [[{ "node": "Fetch DefectActs from LABBIS", "type": "main", "index": 0 }]]
+      "main": [[{ "node": "Fetch PickList Values", "type": "main", "index": 0 }]]
     },
-    "Fetch DefectActs from LABBIS": {
+    "Fetch PickList Values": {
+      "main": [[{ "node": "Fetch from Mirror", "type": "main", "index": 0 }]]
+    },
+    "Fetch from Mirror": {
       "main": [[{ "node": "Map + Status + Dedup + FK Validate", "type": "main", "index": 0 }]]
     },
     "Map + Status + Dedup + FK Validate": {
-      "main": [[{ "node": "Filter Empty", "type": "main", "index": 0 }]]
+      "main": [[{ "node": "Insert to Dashboard", "type": "main", "index": 0 }]]
     },
-    "Filter Empty": {
-      "main": [[{ "node": "Insert to Directus", "type": "main", "index": 0 }]]
-    },
-    "Insert to Directus": {
+    "Insert to Dashboard": {
       "main": [[{ "node": "Summary", "type": "main", "index": 0 }]]
     }
   },

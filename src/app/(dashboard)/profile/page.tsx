@@ -1,25 +1,53 @@
 "use client"
 
 import { useState } from "react"
-import { Save, LogOut } from "lucide-react"
+import { useQuery } from "@tanstack/react-query"
+import { Save, LogOut, Loader2 } from "lucide-react"
+import { fetchSystemUsers, fetchUserObjectAssignments, fetchObjects } from "@/lib/directus-api"
 
 const tabs = ["My Objects", "Settings", "Security"] as const
 type Tab = (typeof tabs)[number]
 
-const mockObjects = [
-  { id: "obj-001", code: "BLD-A", name: "Main Office", address: "Gedimino pr. 1, Vilnius", role: "Owner" },
-  { id: "obj-002", code: "BLD-B", name: "Residential Block", address: "Konstitucijos pr. 12, Vilnius", role: "Manager" },
-  { id: "obj-003", code: "BLD-C", name: "Warehouse", address: "Ozo g. 25, Vilnius", role: "Owner" },
-]
-
 export default function ProfilePage() {
   const [activeTab, setActiveTab] = useState<Tab>("Settings")
 
-  const [firstName, setFirstName] = useState("Almantas")
-  const [lastName, setLastName] = useState("Jucius")
-  const [userRole] = useState("Facility Owner")
-  const [phone, setPhone] = useState("+37062010116")
-  const [email, setEmail] = useState("almantas.jucius@swim.lt")
+  const usersQuery = useQuery({
+    queryKey: ["system_users"],
+    queryFn: fetchSystemUsers,
+  })
+
+  const objectsQuery = useQuery({
+    queryKey: ["objects"],
+    queryFn: fetchObjects,
+  })
+
+  const assignmentsQuery = useQuery({
+    queryKey: ["user_object_assignments"],
+    queryFn: () => fetchUserObjectAssignments(),
+  })
+
+  const currentUser = (usersQuery.data as any[])?.[0] ?? null
+  const allObjects = (objectsQuery.data as any[]) ?? []
+  const assignments = (assignmentsQuery.data as any[]) ?? []
+
+  const objectMap = new Map(allObjects.map((o: any) => [o.ObjectId, o]))
+
+  const userObjects = assignments.map((a: any) => {
+    const obj = objectMap.get(a.objectId)
+    return {
+      id: a.id,
+      code: obj?.Code ?? "—",
+      name: obj?.Description ?? "Unknown",
+      address: obj?.FullAddress ?? "—",
+      role: a.role ?? "—",
+    }
+  })
+
+  const [firstName, setFirstName] = useState("")
+  const [lastName, setLastName] = useState("")
+  const [userRole, setUserRole] = useState("")
+  const [phone, setPhone] = useState("")
+  const [email, setEmail] = useState("")
 
   const [monthlySummary, setMonthlySummary] = useState(true)
   const [defectUpdates, setDefectUpdates] = useState(true)
@@ -28,6 +56,23 @@ export default function ProfilePage() {
 
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [initialized, setInitialized] = useState(false)
+
+  if (currentUser && !initialized) {
+    const fullName = currentUser.FullName ?? currentUser.LoginName ?? ""
+    const parts = fullName.split(" ")
+    setFirstName(parts[0] ?? "")
+    setLastName(parts.slice(1).join(" ") ?? "")
+    setUserRole(currentUser.JobTitle ?? currentUser.Roles?.[0] ?? "")
+    setPhone(currentUser.OfficePhone ?? "")
+    setEmail(currentUser.Email ?? "")
+    setInitialized(true)
+  }
+
+  const displayName = `${firstName} ${lastName}`.trim() || currentUser?.LoginName || "User"
+  const initials = firstName && lastName
+    ? `${firstName[0]}${lastName[0]}`.toUpperCase()
+    : displayName.slice(0, 2).toUpperCase()
 
   async function handleSave() {
     setSaving(true)
@@ -35,6 +80,17 @@ export default function ProfilePage() {
     setSaving(false)
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
+  }
+
+  const isLoading = usersQuery.isLoading
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-24">
+        <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+        <span className="ml-2 text-sm text-gray-500">Loading profile...</span>
+      </div>
+    )
   }
 
   return (
@@ -51,14 +107,12 @@ export default function ProfilePage() {
       <div className="rounded-xl border border-gray-200 bg-white p-6">
         <div className="flex items-center gap-5">
           <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-[#6B1D1D] text-xl font-semibold text-white">
-            AJ
+            {initials}
           </div>
           <div>
-            <h2 className="text-lg font-semibold text-gray-900">
-              {firstName} {lastName}
-            </h2>
-            <p className="text-sm text-gray-500">{userRole}</p>
-            <p className="text-sm text-gray-400">{email}</p>
+            <h2 className="text-lg font-semibold text-gray-900">{displayName}</h2>
+            <p className="text-sm text-gray-500">{userRole || "—"}</p>
+            <p className="text-sm text-gray-400">{email || "—"}</p>
           </div>
         </div>
 
@@ -221,32 +275,42 @@ export default function ProfilePage() {
 
       {activeTab === "My Objects" && (
         <div className="rounded-xl border border-gray-200 bg-white">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-gray-100 bg-gray-50/50">
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Object</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Address</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Role</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {mockObjects.map((obj) => (
-                <tr key={obj.id} className="hover:bg-gray-50/50 transition-colors">
-                  <td className="px-4 py-3.5">
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">{obj.code} – {obj.name}</p>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3.5 text-sm text-gray-600">{obj.address}</td>
-                  <td className="px-4 py-3.5">
-                    <span className="inline-flex items-center rounded-full bg-[#6B1D1D]/10 px-2.5 py-1 text-xs font-medium text-[#6B1D1D]">
-                      {obj.role}
-                    </span>
-                  </td>
+          {assignmentsQuery.isLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-5 w-5 animate-spin text-gray-300" />
+            </div>
+          ) : userObjects.length === 0 ? (
+            <div className="py-12 text-center text-sm text-gray-400">
+              No objects assigned yet.
+            </div>
+          ) : (
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-gray-100 bg-gray-50/50">
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Object</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Address</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Role</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {userObjects.map((obj: any) => (
+                  <tr key={obj.id} className="hover:bg-gray-50/50 transition-colors">
+                    <td className="px-4 py-3.5">
+                      <div>
+                        <p className="text-sm font-medium text-gray-900">{obj.code} – {obj.name}</p>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3.5 text-sm text-gray-600">{obj.address}</td>
+                    <td className="px-4 py-3.5">
+                      <span className="inline-flex items-center rounded-full bg-[#6B1D1D]/10 px-2.5 py-1 text-xs font-medium text-[#6B1D1D]">
+                        {obj.role}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       )}
 

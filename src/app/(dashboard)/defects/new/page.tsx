@@ -2,15 +2,10 @@
 
 import { useState, useRef } from "react"
 import { useRouter } from "next/navigation"
-import { useQuery, useMutation } from "@tanstack/react-query"
+import { useQuery } from "@tanstack/react-query"
 import { Button } from "@/components/ui/button"
 import { Plus, Upload, X, FileText, Image, Loader2 } from "lucide-react"
-import {
-  getApiV1LabbisObjectOptions,
-  getApiV1LabbisObjectByIdSystGroupOptions,
-  getApiV1LabbisObjectByIdSystGroupBySystGroupIdSystemosOptions,
-  postApiV1LabbisDefectActMutation,
-} from "@/generated/api/@tanstack/react-query.gen"
+import { fetchObjects, fetchSystemGroups, fetchSystems } from "@/lib/directus-api"
 
 const LOCATION_MAX = 65
 const DESCRIPTION_MAX = 518
@@ -34,28 +29,30 @@ export default function NewDefectPage() {
   const [files, setFiles] = useState<AttachedFile[]>([])
   const [dragOver, setDragOver] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
+  const [submitting, setSubmitting] = useState(false)
 
-  const objectsQuery = useQuery({ ...getApiV1LabbisObjectOptions(), enabled: false })
+  const objectsQuery = useQuery({
+    queryKey: ["objects"],
+    queryFn: fetchObjects,
+  })
 
   const systGroupsQuery = useQuery({
-    ...getApiV1LabbisObjectByIdSystGroupOptions({
-      path: { id: objectId },
-    }),
-    enabled: !!objectId,
+    queryKey: ["system_groups"],
+    queryFn: fetchSystemGroups,
   })
 
   const systemosQuery = useQuery({
-    ...getApiV1LabbisObjectByIdSystGroupBySystGroupIdSystemosOptions({
-      path: { id: objectId, systGroupId: systemGroupId },
-    }),
-    enabled: !!objectId && !!systemGroupId,
+    queryKey: ["systems"],
+    queryFn: fetchSystems,
   })
 
-  const createDefect = useMutation(postApiV1LabbisDefectActMutation())
-
   const objects = (objectsQuery.data as Array<{ ObjectId: string; Code: string; Description?: string | null; FullAddress?: string | null }>) ?? []
-  const systGroups = (systGroupsQuery.data as Array<{ SystGroupId: string; SystGroupName: string }>) ?? []
-  const systemos = (systemosQuery.data as Array<{ SystemosId: string; SystemosName: string }>) ?? []
+  const allSystGroups = (systGroupsQuery.data as Array<{ SystGroupId: string; SystGroupName: string }>) ?? []
+  const allSystemos = (systemosQuery.data as Array<{ SystemosId: string; SystemosName: string; SystGroupId: string }>) ?? []
+
+  const filteredSystemos = systemGroupId
+    ? allSystemos.filter((s) => s.SystGroupId === systemGroupId)
+    : allSystemos
 
   function handleObjectChange(value: string) {
     setObjectId(value)
@@ -94,32 +91,42 @@ export default function NewDefectPage() {
     return Object.keys(e).length === 0
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!validate()) return
 
-    createDefect.mutate(
-      {
-        body: {
-          DefectActId: crypto.randomUUID(),
-          DefectActDate: new Date().toISOString(),
-          ObjectId: objectId,
-          SystGroupId: systemGroupId,
-          SystemosId: systemId,
-          Place: location,
-          Problem: description,
-          Status: "",
-        },
-      },
-      {
-        onSuccess: () => router.push("/defects"),
-        onError: () =>
-          setErrors((prev) => ({
-            ...prev,
-            submit: "Failed to create defect. Please try again.",
-          })),
-      }
-    )
+    setSubmitting(true)
+    try {
+      const DIRECTUS_URL = process.env.NEXT_PUBLIC_DIRECTUS_URL || "http://localhost:8055"
+      const DIRECTUS_TOKEN = process.env.NEXT_PUBLIC_DIRECTUS_TOKEN || ""
+      const headers: Record<string, string> = { "Content-Type": "application/json" }
+      if (DIRECTUS_TOKEN) headers["Authorization"] = `Bearer ${DIRECTUS_TOKEN}`
+
+      const res = await fetch(`${DIRECTUS_URL}/items/defect_acts`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          id: crypto.randomUUID(),
+          defect_date: new Date().toISOString(),
+          object_id: objectId,
+          system_group_id: systemGroupId,
+          system_id: systemId,
+          place: location,
+          problem: description,
+          status: "In Progress",
+        }),
+      })
+
+      if (!res.ok) throw new Error("Failed to create")
+      router.push("/defects")
+    } catch {
+      setErrors((prev) => ({
+        ...prev,
+        submit: "Failed to create defect. Please try again.",
+      }))
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -156,9 +163,8 @@ export default function NewDefectPage() {
                 value={systemGroupId}
                 onChange={handleSystemGroupChange}
                 placeholder="Select system group"
-                loading={systGroupsQuery.isLoading && !!objectId}
-                disabled={!objectId}
-                options={systGroups.map((g) => ({
+                loading={systGroupsQuery.isLoading}
+                options={allSystGroups.map((g) => ({
                   value: g.SystGroupId,
                   label: g.SystGroupName,
                 }))}
@@ -169,9 +175,9 @@ export default function NewDefectPage() {
                 value={systemId}
                 onChange={setSystemId}
                 placeholder="Select system"
-                loading={systemosQuery.isLoading && !!systemGroupId}
-                disabled={!objectId || !systemGroupId}
-                options={systemos.map((s) => ({
+                loading={systemosQuery.isLoading}
+                disabled={!systemGroupId}
+                options={filteredSystemos.map((s) => ({
                   value: s.SystemosId,
                   label: s.SystemosName,
                 }))}
@@ -317,15 +323,15 @@ export default function NewDefectPage() {
         {/* Submit */}
         <Button
           type="submit"
-          disabled={createDefect.isPending}
+          disabled={submitting}
           className="mt-6 w-full bg-[#6B1D1D] py-3 text-white shadow-sm hover:bg-[#5a1818]"
         >
-          {createDefect.isPending ? (
+          {submitting ? (
             <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
           ) : (
             <Plus className="mr-1.5 h-4 w-4" />
           )}
-          {createDefect.isPending ? "Submitting..." : "Register Defect"}
+          {submitting ? "Submitting..." : "Register Defect"}
         </Button>
       </form>
     </div>

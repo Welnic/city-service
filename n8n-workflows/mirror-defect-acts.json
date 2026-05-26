@@ -1,0 +1,223 @@
+{
+  "name": "Mirror LABBIS DefectActs to Directus",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://directus:8055/items/labbis_defect_act",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "DefectActId"
+            },
+            {
+              "name": "limit",
+              "value": "-1"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "fetch_existing",
+      "name": "Fetch Existing from Directus",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        220,
+        0
+      ],
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "DIRECTUS_CREDENTIAL_ID",
+          "name": "Directus Admin Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://bengal-test.mcs.lt/api/v1/labbis/DefectAct",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "rowsPerPage",
+              "value": "2000"
+            },
+            {
+              "name": "orderBy",
+              "value": "DefectActDate desc"
+            },
+            {
+              "name": "fields",
+              "value": "DefectActId;ActNumber;ClerkId;CreatedBy;CreatedOn;DefectActDate;Description;DocumentType;ExternalNumber;InspectionDate;ObjectId;OwningBusinessUnitId;OwningOrganizationId;OwningSystemUserId;Place;Problem;SystemosId;SystGroupId;Solution;Status"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "fetch_labbis",
+      "name": "Fetch DefectActs from LABBIS",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        0
+      ],
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "LABBIS_API_CREDENTIAL_ID",
+          "name": "LABBIS API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const existingResponse = $('Fetch Existing from Directus').first().json;\nconst existingIds = new Set((existingResponse.data || []).map(d => d.DefectActId));\n\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const obj = item.json;\n  if (obj.statusCode && obj.statusCode >= 400) continue;\n  if (!obj.DefectActId) continue;\n  if (existingIds.has(obj.DefectActId)) continue;\n\n  const { statusCode, headers, ...fields } = obj;\n  results.push({ json: fields });\n}\n\nreturn results;"
+      },
+      "id": "map_dedup",
+      "name": "Map + Dedup",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://directus:8055/items/labbis_defect_act",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "insert_directus",
+      "name": "Insert to Directus",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        0
+      ],
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "DIRECTUS_CREDENTIAL_ID",
+          "name": "Directus Admin Token"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nlet created = 0;\nlet skipped = 0;\nlet errors = 0;\n\nfor (const item of items) {\n  const status = item.json?.statusCode;\n  if (status === 200 || status === 204 || item.json?.data?.id) {\n    created++;\n  } else if (status === 400 && JSON.stringify(item.json).includes('unique')) {\n    skipped++;\n  } else {\n    errors++;\n  }\n}\n\nreturn [{\n  json: {\n    total_processed: items.length,\n    created,\n    skipped,\n    errors,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "summary",
+      "name": "Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Fetch Existing from Directus",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Existing from Directus": {
+      "main": [
+        [
+          {
+            "node": "Fetch DefectActs from LABBIS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch DefectActs from LABBIS": {
+      "main": [
+        [
+          {
+            "node": "Map + Dedup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map + Dedup": {
+      "main": [
+        [
+          {
+            "node": "Insert to Directus",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert to Directus": {
+      "main": [
+        [
+          {
+            "node": "Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

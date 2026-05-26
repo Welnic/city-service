@@ -18,96 +18,19 @@ import {
   AlertCircle,
   Check,
 } from "lucide-react"
-import { getApiV1LabbisSystemUserOptions } from "@/generated/api/@tanstack/react-query.gen"
-import type { SystemUser } from "@/generated/api/types.gen"
+import { fetchSystemUsers } from "@/lib/directus-api"
 
-const mockUsers: SystemUser[] = [
-  {
-    SystemUserId: "u-001",
-    LoginName: "a.jucius",
-    FullName: "Almantas Jucius",
-    Email: "almantas.jucius@cityservice.lt",
-    JobTitle: "Facility Owner",
-    IsDisabled: false,
-    BusinessUnitId: "bu-001",
-    Roles: ["Admin"],
-    CreatedOn: "2024-03-15T09:00:00Z",
-    OfficePhone: "+370 612 34567",
-  },
-  {
-    SystemUserId: "u-002",
-    LoginName: "r.kazlauskas",
-    FullName: "Rokas Kazlauskas",
-    Email: "rokas.k@cityservice.lt",
-    JobTitle: "Technical Engineer",
-    IsDisabled: false,
-    BusinessUnitId: "bu-001",
-    Roles: ["Engineer"],
-    CreatedOn: "2024-04-02T10:30:00Z",
-    OfficePhone: "+370 612 45678",
-  },
-  {
-    SystemUserId: "u-003",
-    LoginName: "i.petraityte",
-    FullName: "Ieva Petraitytė",
-    Email: "ieva.p@cityservice.lt",
-    JobTitle: "Property Manager",
-    IsDisabled: false,
-    BusinessUnitId: "bu-001",
-    Roles: ["Manager"],
-    CreatedOn: "2024-05-10T08:15:00Z",
-    OfficePhone: "+370 612 56789",
-  },
-  {
-    SystemUserId: "u-004",
-    LoginName: "d.valentas",
-    FullName: "Donatas Valentas",
-    Email: "donatas.v@cityservice.lt",
-    JobTitle: "Maintenance Technician",
-    IsDisabled: false,
-    BusinessUnitId: "bu-002",
-    Roles: ["Technician"],
-    CreatedOn: "2024-06-20T14:00:00Z",
-    OfficePhone: null,
-  },
-  {
-    SystemUserId: "u-005",
-    LoginName: "g.stankevic",
-    FullName: "Greta Stankevičiūtė",
-    Email: "greta.s@cityservice.lt",
-    JobTitle: "Inspector",
-    IsDisabled: false,
-    BusinessUnitId: "bu-001",
-    Roles: ["Inspector"],
-    CreatedOn: "2024-07-05T11:45:00Z",
-    OfficePhone: "+370 612 67890",
-  },
-  {
-    SystemUserId: "u-006",
-    LoginName: "m.jonaitis",
-    FullName: "Marius Jonaitis",
-    Email: "marius.j@cityservice.lt",
-    JobTitle: "Clerk",
-    IsDisabled: true,
-    BusinessUnitId: "bu-002",
-    Roles: ["Clerk"],
-    CreatedOn: "2024-02-14T16:30:00Z",
-    DisabledReason: "Contract ended",
-    OfficePhone: null,
-  },
-  {
-    SystemUserId: "u-007",
-    LoginName: "l.rimkus",
-    FullName: "Lukas Rimkus",
-    Email: "lukas.r@cityservice.lt",
-    JobTitle: "System Administrator",
-    IsDisabled: false,
-    BusinessUnitId: "bu-001",
-    Roles: ["Admin"],
-    CreatedOn: "2024-01-08T09:30:00Z",
-    OfficePhone: "+370 612 78901",
-  },
-]
+type SystemUser = {
+  SystemUserId: string;
+  LoginName: string;
+  FullName: string | null;
+  Email: string | null;
+  JobTitle: string | null;
+  IsDisabled: boolean;
+  Roles: string[];
+  CreatedOn: string | null;
+  OfficePhone: string | null;
+}
 
 const avatarColors = [
   "bg-[#6B1D1D]",
@@ -164,13 +87,11 @@ export default function UsersPage() {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc")
 
   const usersQuery = useQuery({
-    ...getApiV1LabbisSystemUserOptions(),
-    enabled: false,
+    queryKey: ["system_users"],
+    queryFn: fetchSystemUsers,
   })
-  const apiUsers = (usersQuery.data as Array<SystemUser>) ?? []
 
-  const users = apiUsers.length > 0 ? apiUsers : mockUsers
-  const usingMock = apiUsers.length === 0
+  const users = (usersQuery.data as SystemUser[]) ?? []
 
   const filtered = useMemo(() => {
     let items = users
@@ -617,11 +538,6 @@ export default function UsersPage() {
             of{" "}
             <span className="font-medium text-gray-700">{totalUsers}</span>{" "}
             users
-            {usingMock && (
-              <span className="ml-2 rounded bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-600">
-                Sample data
-              </span>
-            )}
           </p>
           <div className="text-xs text-gray-400">
             {activeUsers} active · {inactiveUsers} inactive

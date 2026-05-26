@@ -1,5 +1,5 @@
 {
-  "name": "Sync LABBIS Systems to Directus",
+  "name": "Sync LABBIS Systems to Directus (direct fetch)",
   "nodes": [
     {
       "parameters": {},
@@ -12,47 +12,85 @@
     {
       "parameters": {
         "method": "GET",
+        "url": "http://directus:8055/items/systems",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "fields", "value": "labbis_id" },
+            { "name": "limit", "value": "-1" }
+          ]
+        },
+        "options": {
+          "response": { "response": { "responseFormat": "json" } }
+        }
+      },
+      "id": "fetch_existing",
+      "name": "Fetch Existing from Directus",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [220, 0],
+      "credentials": {
+        "httpHeaderAuth": { "id": "DIRECTUS_CREDENTIAL_ID", "name": "Directus Admin Token" }
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
         "url": "https://bengal-test.mcs.lt/api/v1/labbis/Systemos",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendQuery": true,
         "queryParameters": {
           "parameters": [
-            {
-              "name": "rowsPerPage",
-              "value": "2000"
-            }
+            { "name": "rowsPerPage", "value": "200" }
           ]
         },
         "options": {
-          "response": {
-            "response": {
-              "responseFormat": "json"
-            }
-          }
+          "response": { "response": { "responseFormat": "json" } }
         }
       },
       "id": "fetch_labbis",
-      "name": "Fetch Systems from LABBIS",
+      "name": "Fetch Systemos from LABBIS",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [220, 0],
+      "position": [440, 0],
       "credentials": {
-        "httpHeaderAuth": {
-          "id": "LABBIS_API_CREDENTIAL_ID",
-          "name": "LABBIS API Key"
-        }
+        "httpHeaderAuth": { "id": "LABBIS_API_CREDENTIAL_ID", "name": "LABBIS API Key" }
       }
     },
     {
       "parameters": {
-        "jsCode": "const items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const s = item.json;\n  results.push({\n    json: {\n      id: s.SystemosId,\n      name: s.SystemosName || '',\n      system_group_id: s.SystGroupId || null,\n      labbis_id: s.SystemosId\n    }\n  });\n}\n\nreturn results;"
+        "jsCode": "const existingResponse = $('Fetch Existing from Directus').first().json;\nconst existingIds = new Set((existingResponse.data || []).map(d => d.labbis_id));\n\nconst items = $input.all();\nconst seen = new Set();\nconst results = [];\n\nfor (const item of items) {\n  const data = item.json;\n  if (data.statusCode && data.statusCode >= 400) continue;\n  if (!data.SystemosId) continue;\n  if (seen.has(data.SystemosId)) continue;\n  if (existingIds.has(data.SystemosId)) continue;\n\n  seen.add(data.SystemosId);\n  results.push({\n    json: {\n      id: data.SystemosId,\n      name: data.SystemosName || '',\n      system_group_id: data.SystGroupId || null,\n      labbis_id: data.SystemosId\n    }\n  });\n}\n\nreturn results.length > 0 ? results : [{ json: { _empty: true } }];"
       },
       "id": "map_fields",
-      "name": "Map to Directus Schema",
+      "name": "Map + Dedup",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [440, 0]
+      "position": [660, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "filter_empty",
+              "leftValue": "={{ $json._empty }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "notTrue" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "filter_empty",
+      "name": "Filter Empty",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [880, 0]
     },
     {
       "parameters": {
@@ -64,23 +102,16 @@
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify($json) }}",
         "options": {
-          "response": {
-            "response": {
-              "responseFormat": "json"
-            }
-          }
+          "response": { "response": { "responseFormat": "json" } }
         }
       },
       "id": "upsert_directus",
       "name": "Insert to Directus",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [660, 0],
+      "position": [1100, 0],
       "credentials": {
-        "httpHeaderAuth": {
-          "id": "DIRECTUS_CREDENTIAL_ID",
-          "name": "Directus Admin Token"
-        }
+        "httpHeaderAuth": { "id": "DIRECTUS_CREDENTIAL_ID", "name": "Directus Admin Token" }
       },
       "onError": "continueRegularOutput"
     },
@@ -92,17 +123,23 @@
       "name": "Summary",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [880, 0]
+      "position": [1320, 0]
     }
   ],
   "connections": {
     "Manual Trigger": {
-      "main": [[{ "node": "Fetch Systems from LABBIS", "type": "main", "index": 0 }]]
+      "main": [[{ "node": "Fetch Existing from Directus", "type": "main", "index": 0 }]]
     },
-    "Fetch Systems from LABBIS": {
-      "main": [[{ "node": "Map to Directus Schema", "type": "main", "index": 0 }]]
+    "Fetch Existing from Directus": {
+      "main": [[{ "node": "Fetch Systemos from LABBIS", "type": "main", "index": 0 }]]
     },
-    "Map to Directus Schema": {
+    "Fetch Systemos from LABBIS": {
+      "main": [[{ "node": "Map + Dedup", "type": "main", "index": 0 }]]
+    },
+    "Map + Dedup": {
+      "main": [[{ "node": "Filter Empty", "type": "main", "index": 0 }]]
+    },
+    "Filter Empty": {
       "main": [[{ "node": "Insert to Directus", "type": "main", "index": 0 }]]
     },
     "Insert to Directus": {
