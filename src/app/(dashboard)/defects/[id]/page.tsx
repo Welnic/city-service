@@ -1,7 +1,8 @@
 "use client"
 
-import { use, useState } from "react"
+import { use, useState, useMemo } from "react"
 import Link from "next/link"
+import { useQuery } from "@tanstack/react-query"
 import {
   ArrowLeft,
   CheckCircle,
@@ -9,81 +10,23 @@ import {
   XCircle,
   Pause,
   Download,
-  AlertTriangle,
   ChevronRight,
   ImageIcon,
   X,
+  Loader2,
+  AlertCircle,
 } from "lucide-react"
+import {
+  fetchDefectActById,
+  fetchNotesByDefectAct,
+  fetchJobsByDefectAct,
+  fetchMaterialsByDefectAct,
+  fetchObjectById,
+  fetchSystems,
+  fetchSystemGroups,
+} from "@/lib/directus-api"
 
-const mockDefect = {
-  id: "DEF-00000915",
-  title: "HVAC Filter Replacement – Building A",
-  priority: "High" as const,
-  status: "In Progress" as const,
-  updates: 2,
-  object: "JF, Franconiho g. 2, Grīstāulji k., Šešuv sen., Trakų unis.",
-  registration: "2025-02-18 14:35",
-  actNumber: "SV47-032",
-  date: "2025-02-18 00:00",
-  location: "Building A, Floor 3",
-  system: "HVAC – Ventilation",
-  systemGroup: "Heating & Cooling",
-  description:
-    "Pastatas o statinio, konstrukcijų ir pamatinių plokščių defektas. Stogo danga yra pažeista, matomi prisilaimai ir drėgmės pasireiškimai. Konstrukcijų pažeidimai apima medinias elementus, povirnio ir matinią dielių koroziją. Pamatiniškas plokštelės parodyti vertikalius prisilaiminius, kurie gali lemti tolimesnies pastatou dieliau nugrūtę. Būtina atlikti skubias remontes, kad išvengi didesnių struktūrinių problemų ir užtikrinti pastatou singtį.",
-  solution: "Reikalingas skubus remontas",
-  attachments: [
-    "/placeholder-1.jpg",
-    "/placeholder-2.jpg",
-    "/placeholder-3.jpg",
-    "/placeholder-4.jpg",
-    "/placeholder-5.jpg",
-    "/placeholder-6.jpg",
-  ],
-}
-
-const timeline = [
-  {
-    author: "John Contractor",
-    date: "Apr 15, 2025",
-    avatar: "JC",
-    avatarBg: "bg-amber-700",
-    text: "Finished the roof repair work today. Removed the damaged sections and prepared the surface for new waterproofing layer. Weather conditions are favorable for continuing tomorrow.",
-  },
-  {
-    author: "Mike Supervisor",
-    date: "Apr 12, 2025",
-    avatar: "MS",
-    avatarBg: "bg-blue-700",
-    text: "Materials delivered and inspected. All items match the specifications in the estimate. Ready to begin work phase 1.",
-  },
-  {
-    author: "Sarah Project Manager",
-    date: "Apr 10, 2025",
-    avatar: "SP",
-    avatarBg: "bg-violet-700",
-    text: "Work scheduled to begin on April 15th. Team assigned and materials ordered. Clerk will be notified of any changes.",
-  },
-]
-
-const worksData = [
-  {
-    category: "Stogo remontas",
-    items: [
-      { name: "Stogo danga", quantity: "25.5 m²", price: "€45.00", total: "€1,147.50" },
-      { name: "Stogo danga", quantity: "30 m²", price: "€25.00", total: "€750.00" },
-      { name: "Tvirtinimo elementai", quantity: "15 kg", price: "€8.50", total: "€127.50" },
-    ],
-  },
-  {
-    category: "Konstrukcijų stiprinimas",
-    items: [
-      { name: "—", quantity: "3 vnt", price: "€120.00", total: "€360.00" },
-      { name: "Hidroizoliacija", quantity: "28 m²", price: "€12.00", total: "€336.00" },
-    ],
-  },
-]
-
-const priorityConfig = {
+const priorityConfig: Record<string, { bg: string; text: string; dot: string }> = {
   High: { bg: "bg-red-100", text: "text-red-700", dot: "bg-red-500" },
   Medium: { bg: "bg-amber-100", text: "text-amber-700", dot: "bg-amber-500" },
   Low: { bg: "bg-blue-100", text: "text-blue-700", dot: "bg-blue-500" },
@@ -94,9 +37,23 @@ const statusStyles: Record<string, { bg: string; text: string; dot: string }> = 
   Completed: { bg: "bg-emerald-50", text: "text-emerald-700", dot: "bg-emerald-500" },
   Declined: { bg: "bg-red-50", text: "text-red-700", dot: "bg-red-500" },
   Postponed: { bg: "bg-amber-50", text: "text-amber-700", dot: "bg-amber-500" },
+  "Awaiting Approval": { bg: "bg-amber-50", text: "text-amber-700", dot: "bg-amber-500" },
+  "Under Review": { bg: "bg-violet-50", text: "text-violet-700", dot: "bg-violet-500" },
 }
 
 const steps = ["Approved", "In Progress", "Completed"]
+
+const avatarColors = [
+  "bg-amber-700", "bg-blue-700", "bg-violet-700", "bg-emerald-700",
+  "bg-rose-700", "bg-cyan-700", "bg-stone-600", "bg-[#6B1D1D]",
+]
+
+function getInitials(name: string | null | undefined): string {
+  if (!name) return "??"
+  const parts = name.trim().split(/\s+/)
+  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+  return parts[0].slice(0, 2).toUpperCase()
+}
 
 function DeclineModal({
   defectId,
@@ -257,25 +214,81 @@ export default function DefectDetailPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = use(params)
-  const defect = mockDefect
-  const pc = priorityConfig[defect.priority]
 
-  const [status, setStatus] = useState<string>(defect.status)
+  const defectQuery = useQuery({
+    queryKey: ["defect_act", id],
+    queryFn: () => fetchDefectActById(id),
+  })
+  const notesQuery = useQuery({
+    queryKey: ["notes", id],
+    queryFn: () => fetchNotesByDefectAct(id),
+  })
+  const jobsQuery = useQuery({
+    queryKey: ["jobs", id],
+    queryFn: () => fetchJobsByDefectAct(id),
+  })
+  const materialsQuery = useQuery({
+    queryKey: ["materials", id],
+    queryFn: () => fetchMaterialsByDefectAct(id),
+  })
+  const systemsQuery = useQuery({
+    queryKey: ["systems"],
+    queryFn: fetchSystems,
+  })
+  const systemGroupsQuery = useQuery({
+    queryKey: ["system_groups"],
+    queryFn: fetchSystemGroups,
+  })
+
+  const defect = defectQuery.data as any | null
+  const notes = (notesQuery.data as any[]) ?? []
+  const jobs = (jobsQuery.data as any[]) ?? []
+  const materials = (materialsQuery.data as any[]) ?? []
+
+  const objectQuery = useQuery({
+    queryKey: ["object", defect?.ObjectId],
+    queryFn: () => fetchObjectById(defect!.ObjectId),
+    enabled: !!defect?.ObjectId,
+  })
+
+  const systemMap = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const s of (systemsQuery.data as any[]) ?? []) {
+      map.set(s.SystemosId, s.SystemosName)
+    }
+    return map
+  }, [systemsQuery.data])
+
+  const systemGroupMap = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const sg of (systemGroupsQuery.data as any[]) ?? []) {
+      map.set(sg.SystGroupId, sg.SystGroupName)
+    }
+    return map
+  }, [systemGroupsQuery.data])
+
+  const obj = objectQuery.data as any | null
+
+  const [status, setStatus] = useState<string | null>(null)
   const [currentStep, setCurrentStep] = useState(1)
   const [showDecline, setShowDecline] = useState(false)
   const [showPostpone, setShowPostpone] = useState(false)
   const [postponements, setPostponements] = useState(0)
 
-  const isResolved = status === "Completed" || status === "Declined" || status === "Postponed"
+  const displayStatus = status ?? defect?.Status ?? "In Progress"
+  const isResolved = displayStatus === "Completed" || displayStatus === "Declined" || displayStatus === "Postponed"
+  const ss = statusStyles[displayStatus] ?? statusStyles["In Progress"]
+  const priority = defect?.Priority ?? null
+  const pc = priority ? priorityConfig[priority] : null
 
-  const ss = statusStyles[status] ?? statusStyles["In Progress"]
+  const isLoading = defectQuery.isLoading
 
   function handleApprove() {
     setStatus("Completed")
     setCurrentStep(2)
   }
 
-  function handleDecline(reason: string) {
+  function handleDecline() {
     setStatus("Declined")
     setShowDecline(false)
   }
@@ -286,23 +299,56 @@ export default function DefectDetailPage({
     setShowPostpone(false)
   }
 
-  const worksSubtotal = 1897.5
-  const materialsSubtotal = 823.5
-  const grandTotal = 2721.0
+  const worksSubtotal = useMemo(() => {
+    return jobs.reduce((sum: number, j: any) => sum + (j.Amount ?? 0) * (j.Price ?? 0), 0)
+  }, [jobs])
+
+  const materialsSubtotal = useMemo(() => {
+    return materials.reduce((sum: number, m: any) => sum + (m.Amount ?? 0) * (m.Price ?? 0), 0)
+  }, [materials])
+
+  const grandTotal = worksSubtotal + materialsSubtotal
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-24">
+        <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+        <span className="ml-2 text-sm text-gray-500">Loading defect...</span>
+      </div>
+    )
+  }
+
+  if (!defect) {
+    return (
+      <div className="flex flex-col items-center justify-center py-24">
+        <AlertCircle className="h-8 w-8 text-gray-400" />
+        <p className="mt-3 text-sm font-medium text-gray-900">Defect not found</p>
+        <p className="mt-1 text-sm text-gray-500">No data available for defect #{id}</p>
+        <Link href="/defects" className="mt-4 text-sm font-medium text-[#6B1D1D] hover:underline">
+          Back to Defects
+        </Link>
+      </div>
+    )
+  }
+
+  const actNumber = defect.ActNumber ?? id
+  const objectLabel = obj ? `${obj.Code} – ${obj.FullAddress ?? obj.Description ?? ""}` : defect.ObjectId?.slice(0, 12) ?? "—"
+  const systemName = defect.SystemosId ? (systemMap.get(defect.SystemosId) ?? "—") : "—"
+  const systemGroupName = defect.SystGroupId ? (systemGroupMap.get(defect.SystGroupId) ?? "—") : "—"
 
   return (
     <div className="space-y-6 pb-24">
       {/* Modals */}
       {showDecline && (
         <DeclineModal
-          defectId={id || defect.id}
+          defectId={actNumber}
           onClose={() => setShowDecline(false)}
           onConfirm={handleDecline}
         />
       )}
       {showPostpone && (
         <PostponeModal
-          defectId={id || defect.id}
+          defectId={actNumber}
           postponements={postponements}
           onClose={() => setShowPostpone(false)}
           onConfirm={handlePostpone}
@@ -319,31 +365,29 @@ export default function DefectDetailPage({
           Defects
         </Link>
         <h1 className="text-2xl font-semibold text-gray-900">Defect Details</h1>
-        <p className="mt-0.5 text-sm text-gray-500">Defect #{id || defect.id}</p>
+        <p className="mt-0.5 text-sm text-gray-500">Defect #{actNumber}</p>
       </div>
 
       {/* Title + Tags + Actions */}
       <div className="rounded-xl border border-gray-200 bg-white p-6">
-        <h2 className="text-lg font-semibold text-gray-900">{defect.title}</h2>
+        <h2 className="text-lg font-semibold text-gray-900">{defect.Problem ?? "Untitled Defect"}</h2>
         <div className="mt-3 flex items-center gap-2">
-          <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${pc.bg} ${pc.text}`}>
-            <span className={`h-1.5 w-1.5 rounded-full ${pc.dot}`} />
-            {defect.priority}
-          </span>
+          {pc && (
+            <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${pc.bg} ${pc.text}`}>
+              <span className={`h-1.5 w-1.5 rounded-full ${pc.dot}`} />
+              {priority}
+            </span>
+          )}
           <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${ss.bg} ${ss.text}`}>
-            {status === "Completed" && <CheckCircle className="h-3 w-3" />}
-            {status === "Declined" && <XCircle className="h-3 w-3" />}
-            {status !== "Completed" && status !== "Declined" && <span className={`h-1.5 w-1.5 rounded-full ${ss.dot}`} />}
-            {status}
+            {displayStatus === "Completed" && <CheckCircle className="h-3 w-3" />}
+            {displayStatus === "Declined" && <XCircle className="h-3 w-3" />}
+            {displayStatus !== "Completed" && displayStatus !== "Declined" && <span className={`h-1.5 w-1.5 rounded-full ${ss.dot}`} />}
+            {displayStatus}
           </span>
-          {defect.updates > 0 && (
-            <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ${
-              status === "Completed"
-                ? "bg-[#6B1D1D] text-white"
-                : "bg-emerald-50 text-emerald-700"
-            }`}>
+          {notes.length > 0 && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
               <Clock className="h-3 w-3" />
-              {defect.updates} new updates
+              {notes.length} updates
             </span>
           )}
         </div>
@@ -352,9 +396,9 @@ export default function DefectDetailPage({
         <div className="mt-6 flex items-center gap-0">
           {steps.map((step, i) => {
             const completed = i <= currentStep
-            const stepColor = status === "Completed" ? "bg-emerald-600" : "bg-[#6B1D1D]"
-            const textColor = status === "Completed" ? "text-emerald-600" : "text-[#6B1D1D]"
-            const lineColor = status === "Completed" ? "bg-emerald-600" : "bg-[#6B1D1D]"
+            const stepColor = displayStatus === "Completed" ? "bg-emerald-600" : "bg-[#6B1D1D]"
+            const textColor = displayStatus === "Completed" ? "text-emerald-600" : "text-[#6B1D1D]"
+            const lineColor = displayStatus === "Completed" ? "bg-emerald-600" : "bg-[#6B1D1D]"
             return (
               <div key={step} className="flex items-center flex-1 last:flex-none">
                 <div className="flex flex-col items-center">
@@ -367,7 +411,7 @@ export default function DefectDetailPage({
                   >
                     {i < currentStep ? (
                       <CheckCircle className="h-4 w-4" />
-                    ) : i === currentStep && status === "Completed" ? (
+                    ) : i === currentStep && displayStatus === "Completed" ? (
                       <CheckCircle className="h-4 w-4" />
                     ) : (
                       i + 1
@@ -418,33 +462,42 @@ export default function DefectDetailPage({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <h3 className="text-sm font-semibold text-gray-900">Work Progress</h3>
-            {defect.updates > 0 && (
+            {notes.length > 0 && (
               <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">
-                {defect.updates} new
+                {notes.length} entries
               </span>
             )}
           </div>
-          <button className="text-sm font-medium text-[#6B1D1D] hover:underline">Mark read</button>
         </div>
-        <div className="mt-4 space-y-0">
-          {timeline.map((entry, i) => (
-            <div key={i} className="relative flex gap-4 pb-6 last:pb-0">
-              {i < timeline.length - 1 && (
-                <div className="absolute left-[15px] top-9 h-[calc(100%-20px)] w-px bg-gray-200" />
-              )}
-              <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-medium text-white ${entry.avatarBg}`}>
-                {entry.avatar}
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-gray-900">{entry.author}</span>
-                  <span className="text-xs text-gray-400">{entry.date}</span>
+        {notesQuery.isLoading ? (
+          <div className="mt-4 flex items-center justify-center py-8">
+            <Loader2 className="h-5 w-5 animate-spin text-gray-300" />
+          </div>
+        ) : notes.length === 0 ? (
+          <p className="mt-4 text-sm text-gray-400">No timeline entries yet.</p>
+        ) : (
+          <div className="mt-4 space-y-0">
+            {notes.map((entry: any, i: number) => (
+              <div key={entry.NoteId ?? i} className="relative flex gap-4 pb-6 last:pb-0">
+                {i < notes.length - 1 && (
+                  <div className="absolute left-[15px] top-9 h-[calc(100%-20px)] w-px bg-gray-200" />
+                )}
+                <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-medium text-white ${avatarColors[i % avatarColors.length]}`}>
+                  {getInitials(entry.CreatedByName)}
                 </div>
-                <p className="mt-1 text-sm leading-relaxed text-gray-600">{entry.text}</p>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-gray-900">{entry.CreatedByName ?? "Unknown"}</span>
+                    <span className="text-xs text-gray-400">
+                      {entry.CreatedOn ? new Date(entry.CreatedOn).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : ""}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-sm leading-relaxed text-gray-600">{entry.Text ?? ""}</p>
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Details Grid */}
@@ -454,34 +507,34 @@ export default function DefectDetailPage({
           <div className="grid grid-cols-2 gap-4">
             <div>
               <p className="text-xs font-medium text-gray-400">Object</p>
-              <p className="mt-1 text-sm text-gray-700">{defect.object}</p>
+              <p className="mt-1 text-sm text-gray-700">{objectLabel}</p>
             </div>
             <div>
               <p className="text-xs font-medium text-gray-400">Registration</p>
-              <p className="mt-1 text-sm text-gray-700">{defect.registration}</p>
+              <p className="mt-1 text-sm text-gray-700">{defect.CreatedOn ? new Date(defect.CreatedOn).toLocaleString() : "—"}</p>
             </div>
             <div>
               <p className="text-xs font-medium text-gray-400">Act Number</p>
-              <p className="mt-1 text-sm text-gray-700">{defect.actNumber}</p>
+              <p className="mt-1 text-sm text-gray-700">{defect.ActNumber ?? "—"}</p>
             </div>
             <div>
               <p className="text-xs font-medium text-gray-400">Date</p>
-              <p className="mt-1 text-sm text-gray-700">{defect.date}</p>
+              <p className="mt-1 text-sm text-gray-700">{defect.DefectActDate ? new Date(defect.DefectActDate).toLocaleDateString() : "—"}</p>
             </div>
           </div>
           <h3 className="text-sm font-semibold text-gray-900 pt-2">Location & System</h3>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <p className="text-xs font-medium text-gray-400">Location</p>
-              <p className="mt-1 text-sm text-gray-700">{defect.location}</p>
+              <p className="mt-1 text-sm text-gray-700">{defect.Place ?? "—"}</p>
             </div>
             <div>
               <p className="text-xs font-medium text-gray-400">System</p>
-              <p className="mt-1 text-sm text-gray-700">{defect.system}</p>
+              <p className="mt-1 text-sm text-gray-700">{systemName}</p>
             </div>
             <div>
               <p className="text-xs font-medium text-gray-400">System Group</p>
-              <p className="mt-1 text-sm text-gray-700">{defect.systemGroup}</p>
+              <p className="mt-1 text-sm text-gray-700">{systemGroupName}</p>
             </div>
           </div>
         </div>
@@ -489,30 +542,12 @@ export default function DefectDetailPage({
           <h3 className="text-sm font-semibold text-gray-900">Issue Details</h3>
           <div>
             <p className="text-xs font-medium text-gray-400">Description</p>
-            <p className="mt-1 text-sm leading-relaxed text-gray-700">{defect.description}</p>
+            <p className="mt-1 text-sm leading-relaxed text-gray-700">{defect.Description ?? "—"}</p>
           </div>
           <div>
             <p className="text-xs font-medium text-gray-400">Solution</p>
-            <p className="mt-1 text-sm text-gray-700">{defect.solution}</p>
+            <p className="mt-1 text-sm text-gray-700">{defect.Solution ?? "—"}</p>
           </div>
-        </div>
-      </div>
-
-      {/* Attachments */}
-      <div className="rounded-xl border border-gray-200 bg-white p-6">
-        <h3 className="text-sm font-semibold text-gray-900">Attachments</h3>
-        <div className="mt-4 grid grid-cols-6 gap-3">
-          {defect.attachments.map((_, i) => (
-            <div
-              key={i}
-              className="group relative aspect-square overflow-hidden rounded-lg border border-gray-200 bg-gray-100 cursor-pointer hover:border-[#6B1D1D]/30 transition-colors"
-            >
-              <div className="flex h-full w-full items-center justify-center">
-                <ImageIcon className="h-8 w-8 text-gray-300" />
-              </div>
-              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
-            </div>
-          ))}
         </div>
       </div>
 
@@ -521,64 +556,112 @@ export default function DefectDetailPage({
         <div className="p-6 pb-0">
           <h3 className="text-sm font-semibold text-gray-900">Works & Materials</h3>
         </div>
-        <div className="mt-4">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-gray-100 bg-gray-50/50">
-                <th className="px-6 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Item</th>
-                <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Quantity</th>
-                <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Price</th>
-                <th className="px-6 py-2.5 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Total</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {worksData.map((category) => (
-                <tr key={category.category}>
-                  <td colSpan={4} className="px-0 py-0">
-                    <div className="border-b border-gray-100 bg-gray-50/30 px-6 py-2">
-                      <span className="text-xs font-semibold text-gray-700">{category.category}</span>
-                    </div>
-                    <table className="w-full">
-                      <tbody className="divide-y divide-gray-50">
-                        {category.items.map((item, j) => (
-                          <tr key={j} className="hover:bg-gray-50/50 transition-colors">
-                            <td className="py-3 pl-10 pr-4 text-sm text-gray-700">
-                              <div className="flex items-center gap-1.5">
-                                <ChevronRight className="h-3 w-3 text-gray-300" />
-                                {item.name}
-                              </div>
-                            </td>
-                            <td className="px-4 py-3 text-sm text-gray-600">{item.quantity}</td>
-                            <td className="px-4 py-3 text-right text-sm text-gray-600">{item.price}</td>
-                            <td className="px-6 py-3 text-right text-sm font-medium text-gray-900">{item.total}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </td>
+        {jobsQuery.isLoading || materialsQuery.isLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-5 w-5 animate-spin text-gray-300" />
+          </div>
+        ) : jobs.length === 0 && materials.length === 0 ? (
+          <p className="px-6 py-8 text-sm text-gray-400">No works or materials data available.</p>
+        ) : (
+          <div className="mt-4">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-gray-100 bg-gray-50/50">
+                  <th className="px-6 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Item</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">Quantity</th>
+                  <th className="px-4 py-2.5 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Price</th>
+                  <th className="px-6 py-2.5 text-right text-xs font-semibold uppercase tracking-wider text-gray-500">Total</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-          <div className="border-t border-gray-200">
-            <div className="flex justify-end px-6 py-2.5">
-              <div className="w-64 space-y-1.5">
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">Works Subtotal</span>
-                  <span className="font-medium text-gray-700">€{worksSubtotal.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">Materials Subtotal</span>
-                  <span className="font-medium text-gray-700">€{materialsSubtotal.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between border-t border-gray-200 pt-2 text-base">
-                  <span className="font-semibold text-gray-900">Grand Total</span>
-                  <span className="font-bold text-gray-900">€{grandTotal.toFixed(2)}</span>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {jobs.length > 0 && (
+                  <tr>
+                    <td colSpan={4} className="px-0 py-0">
+                      <div className="border-b border-gray-100 bg-gray-50/30 px-6 py-2">
+                        <span className="text-xs font-semibold text-gray-700">Works</span>
+                      </div>
+                      <table className="w-full">
+                        <tbody className="divide-y divide-gray-50">
+                          {jobs.map((job: any) => (
+                            <tr key={job.DefectActJobId} className="hover:bg-gray-50/50 transition-colors">
+                              <td className="py-3 pl-10 pr-4 text-sm text-gray-700">
+                                <div className="flex items-center gap-1.5">
+                                  <ChevronRight className="h-3 w-3 text-gray-300" />
+                                  {job.Description ?? "—"}
+                                </div>
+                              </td>
+                              <td className="px-4 py-3 text-sm text-gray-600">{job.Amount ?? "—"}</td>
+                              <td className="px-4 py-3 text-right text-sm text-gray-600">
+                                {job.Price != null ? `€${Number(job.Price).toFixed(2)}` : "—"}
+                              </td>
+                              <td className="px-6 py-3 text-right text-sm font-medium text-gray-900">
+                                {job.Amount != null && job.Price != null
+                                  ? `€${(job.Amount * job.Price).toFixed(2)}`
+                                  : "—"}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </td>
+                  </tr>
+                )}
+                {materials.length > 0 && (
+                  <tr>
+                    <td colSpan={4} className="px-0 py-0">
+                      <div className="border-b border-gray-100 bg-gray-50/30 px-6 py-2">
+                        <span className="text-xs font-semibold text-gray-700">Materials</span>
+                      </div>
+                      <table className="w-full">
+                        <tbody className="divide-y divide-gray-50">
+                          {materials.map((mat: any) => (
+                            <tr key={mat.DefectActMaterialId} className="hover:bg-gray-50/50 transition-colors">
+                              <td className="py-3 pl-10 pr-4 text-sm text-gray-700">
+                                <div className="flex items-center gap-1.5">
+                                  <ChevronRight className="h-3 w-3 text-gray-300" />
+                                  {mat.Description ?? "—"}
+                                </div>
+                              </td>
+                              <td className="px-4 py-3 text-sm text-gray-600">{mat.Amount ?? "—"}</td>
+                              <td className="px-4 py-3 text-right text-sm text-gray-600">
+                                {mat.Price != null ? `€${Number(mat.Price).toFixed(2)}` : "—"}
+                              </td>
+                              <td className="px-6 py-3 text-right text-sm font-medium text-gray-900">
+                                {mat.Amount != null && mat.Price != null
+                                  ? `€${(mat.Amount * mat.Price).toFixed(2)}`
+                                  : "—"}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+            {(jobs.length > 0 || materials.length > 0) && (
+              <div className="border-t border-gray-200">
+                <div className="flex justify-end px-6 py-2.5">
+                  <div className="w-64 space-y-1.5">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Works Subtotal</span>
+                      <span className="font-medium text-gray-700">€{worksSubtotal.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Materials Subtotal</span>
+                      <span className="font-medium text-gray-700">€{materialsSubtotal.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between border-t border-gray-200 pt-2 text-base">
+                      <span className="font-semibold text-gray-900">Grand Total</span>
+                      <span className="font-bold text-gray-900">€{grandTotal.toFixed(2)}</span>
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
-        </div>
+        )}
       </div>
 
       {/* Sticky Footer Actions */}

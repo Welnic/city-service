@@ -1,5 +1,5 @@
 {
-  "name": "Sync LABBIS Defect Act Notes to Directus",
+  "name": "Sync LABBIS Defect Act Notes to Directus (with dedup)",
   "nodes": [
     {
       "parameters": {},
@@ -12,40 +12,53 @@
     {
       "parameters": {
         "method": "GET",
+        "url": "http://directus:8055/items/notes",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "fields", "value": "labbis_id" },
+            { "name": "limit", "value": "-1" }
+          ]
+        },
+        "options": {
+          "response": { "response": { "responseFormat": "json" } }
+        }
+      },
+      "id": "fetch_existing_notes",
+      "name": "Fetch Existing Notes from Directus",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [220, 0],
+      "credentials": {
+        "httpHeaderAuth": { "id": "DIRECTUS_CREDENTIAL_ID", "name": "Directus Admin Token" }
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
         "url": "http://directus:8055/items/defect_acts",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "sendQuery": true,
         "queryParameters": {
           "parameters": [
-            {
-              "name": "fields",
-              "value": "id,labbis_id"
-            },
-            {
-              "name": "limit",
-              "value": "-1"
-            }
+            { "name": "fields", "value": "id,labbis_id" },
+            { "name": "limit", "value": "-1" }
           ]
         },
         "options": {
-          "response": {
-            "response": {
-              "responseFormat": "json"
-            }
-          }
+          "response": { "response": { "responseFormat": "json" } }
         }
       },
       "id": "fetch_defect_acts",
       "name": "Fetch Defect Acts from Directus",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [220, 0],
+      "position": [440, 0],
       "credentials": {
-        "httpHeaderAuth": {
-          "id": "DIRECTUS_CREDENTIAL_ID",
-          "name": "Directus Admin Token"
-        }
+        "httpHeaderAuth": { "id": "DIRECTUS_CREDENTIAL_ID", "name": "Directus Admin Token" }
       }
     },
     {
@@ -56,7 +69,7 @@
       "name": "Extract Defect Act IDs",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [440, 0]
+      "position": [660, 0]
     },
     {
       "parameters": {
@@ -65,59 +78,40 @@
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
         "options": {
-          "response": {
-            "response": {
-              "responseFormat": "json"
-            }
-          },
-          "batching": {
-            "batch": {
-              "batchSize": 10,
-              "batchInterval": 500
-            }
-          }
+          "response": { "response": { "responseFormat": "json" } },
+          "batching": { "batch": { "batchSize": 10, "batchInterval": 500 } }
         }
       },
       "id": "fetch_notes",
       "name": "Fetch Notes from LABBIS",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [660, 0],
+      "position": [880, 0],
       "credentials": {
-        "httpHeaderAuth": {
-          "id": "LABBIS_API_CREDENTIAL_ID",
-          "name": "LABBIS API Key"
-        }
+        "httpHeaderAuth": { "id": "LABBIS_API_CREDENTIAL_ID", "name": "LABBIS API Key" }
       },
       "onError": "continueRegularOutput"
     },
     {
       "parameters": {
-        "jsCode": "const items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const data = item.json;\n\n  if (data.statusCode && data.statusCode >= 400) continue;\n  if (!data.NoteId && !Array.isArray(data)) continue;\n\n  if (data.NoteId) {\n    const parentId = $('Extract Defect Act IDs').item.json.defect_act_directus_id;\n    results.push({\n      json: {\n        id: data.NoteId,\n        defect_act_id: parentId,\n        text: data.Text || null,\n        created_by_name: data.CreatedByName || null,\n        created_on: data.CreatedOn || null,\n        blob_id: data.BlobId || null,\n        blob_name: data.BlobName || null,\n        labbis_id: data.NoteId\n      }\n    });\n  }\n}\n\nreturn results.length > 0 ? results : [{ json: { _empty: true } }];"
+        "jsCode": "const existingResponse = $('Fetch Existing Notes from Directus').first().json;\nconst existingIds = new Set((existingResponse.data || []).map(d => d.labbis_id));\n\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const data = item.json;\n  if (data.statusCode && data.statusCode >= 400) continue;\n  if (!data.NoteId) continue;\n  if (existingIds.has(data.NoteId)) continue;\n\n  const parentId = $('Extract Defect Act IDs').item.json.defect_act_directus_id;\n  results.push({\n    json: {\n      id: data.NoteId,\n      defect_act_id: parentId,\n      text: data.Text || null,\n      created_by_name: data.CreatedByName || null,\n      created_on: data.CreatedOn || null,\n      blob_id: data.BlobId || null,\n      blob_name: data.BlobName || null,\n      labbis_id: data.NoteId\n    }\n  });\n}\n\nreturn results.length > 0 ? results : [{ json: { _empty: true } }];"
       },
       "id": "map_fields",
-      "name": "Map Notes to Directus Schema",
+      "name": "Map Notes + Dedup",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [880, 0]
+      "position": [1100, 0]
     },
     {
       "parameters": {
         "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict"
-          },
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
           "conditions": [
             {
               "id": "filter_empty",
               "leftValue": "={{ $json._empty }}",
               "rightValue": true,
-              "operator": {
-                "type": "boolean",
-                "operation": "notTrue"
-              }
+              "operator": { "type": "boolean", "operation": "notTrue" }
             }
           ],
           "combinator": "and"
@@ -128,7 +122,7 @@
       "name": "Filter Empty",
       "type": "n8n-nodes-base.filter",
       "typeVersion": 2,
-      "position": [1100, 0]
+      "position": [1320, 0]
     },
     {
       "parameters": {
@@ -140,23 +134,16 @@
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify($json) }}",
         "options": {
-          "response": {
-            "response": {
-              "responseFormat": "json"
-            }
-          }
+          "response": { "response": { "responseFormat": "json" } }
         }
       },
       "id": "upsert_directus",
       "name": "Insert to Directus",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1320, 0],
+      "position": [1540, 0],
       "credentials": {
-        "httpHeaderAuth": {
-          "id": "DIRECTUS_CREDENTIAL_ID",
-          "name": "Directus Admin Token"
-        }
+        "httpHeaderAuth": { "id": "DIRECTUS_CREDENTIAL_ID", "name": "Directus Admin Token" }
       },
       "onError": "continueRegularOutput"
     },
@@ -168,11 +155,14 @@
       "name": "Summary",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1540, 0]
+      "position": [1760, 0]
     }
   ],
   "connections": {
     "Manual Trigger": {
+      "main": [[{ "node": "Fetch Existing Notes from Directus", "type": "main", "index": 0 }]]
+    },
+    "Fetch Existing Notes from Directus": {
       "main": [[{ "node": "Fetch Defect Acts from Directus", "type": "main", "index": 0 }]]
     },
     "Fetch Defect Acts from Directus": {
@@ -182,9 +172,9 @@
       "main": [[{ "node": "Fetch Notes from LABBIS", "type": "main", "index": 0 }]]
     },
     "Fetch Notes from LABBIS": {
-      "main": [[{ "node": "Map Notes to Directus Schema", "type": "main", "index": 0 }]]
+      "main": [[{ "node": "Map Notes + Dedup", "type": "main", "index": 0 }]]
     },
-    "Map Notes to Directus Schema": {
+    "Map Notes + Dedup": {
       "main": [[{ "node": "Filter Empty", "type": "main", "index": 0 }]]
     },
     "Filter Empty": {

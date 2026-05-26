@@ -2,19 +2,52 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
+import { useQuery } from "@tanstack/react-query"
 import { LayoutDashboard, AlertCircle, Bell, Users, FlaskConical } from "lucide-react"
 import { UserMenu } from "@/components/layout/user-menu"
-
-const navItems = [
-  { label: "Dashboard", href: "/", icon: LayoutDashboard },
-  { label: "Defects List", href: "/defects", icon: AlertCircle, badge: "19" },
-  { label: "Notifications", href: "/notifications", icon: Bell, dot: true },
-  { label: "Users", href: "/users", icon: Users },
-  { label: "API Test", href: "/api-test", icon: FlaskConical },
-]
+import { fetchDefectActs, fetchSystemUsers, fetchNotifications } from "@/lib/directus-api"
 
 export function Sidebar() {
   const pathname = usePathname()
+
+  const defectsQuery = useQuery({
+    queryKey: ["defect_acts_count"],
+    queryFn: () => fetchDefectActs({ limit: 1000 }),
+  })
+
+  const notificationsQuery = useQuery({
+    queryKey: ["notifications"],
+    queryFn: fetchNotifications,
+  })
+
+  const usersQuery = useQuery({
+    queryKey: ["system_users"],
+    queryFn: fetchSystemUsers,
+  })
+
+  const defectCount = (defectsQuery.data as any[])?.length ?? 0
+  const unreadNotifications = ((notificationsQuery.data as any[]) ?? []).filter((n: any) => !n.isRead).length > 0
+  const currentUser = (usersQuery.data as any[])?.[0] ?? null
+
+  const userName = currentUser?.FullName ?? currentUser?.LoginName ?? "User"
+  const userRole = currentUser?.JobTitle ?? currentUser?.Roles?.[0] ?? "—"
+  const initials = (() => {
+    const name = currentUser?.FullName
+    if (name) {
+      const parts = name.trim().split(/\s+/)
+      if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+      if (parts[0]) return parts[0].slice(0, 2).toUpperCase()
+    }
+    return (currentUser?.LoginName ?? "U").slice(0, 2).toUpperCase()
+  })()
+
+  const navItems = [
+    { label: "Dashboard", href: "/", icon: LayoutDashboard },
+    { label: "Defects List", href: "/defects", icon: AlertCircle, badge: defectCount > 0 ? String(defectCount) : undefined },
+    { label: "Notifications", href: "/notifications", icon: Bell, dot: unreadNotifications },
+    { label: "Users", href: "/users", icon: Users },
+    { label: "API Test", href: "/api-test", icon: FlaskConical },
+  ]
 
   return (
     <aside className="flex h-full w-60 shrink-0 flex-col border-r border-gray-200 bg-[#FAFAF8]">
@@ -78,9 +111,9 @@ export function Sidebar() {
       {/* User info */}
       <div className="mt-auto border-t border-gray-200 p-2">
         <UserMenu
-          name="Almantas Jucius"
-          role="Facility Owner"
-          initials="AJ"
+          name={userName}
+          role={userRole}
+          initials={initials}
         />
       </div>
     </aside>

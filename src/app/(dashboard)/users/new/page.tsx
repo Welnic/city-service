@@ -3,17 +3,24 @@
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
+import { useQuery } from "@tanstack/react-query"
 import { Mail, ChevronDown, ArrowLeft, Check } from "lucide-react"
+import { fetchObjects } from "@/lib/directus-api"
 
 const userTypes = ["Facility Owner", "Property Manager", "Technical Engineer", "Maintenance Technician", "Inspector", "Clerk", "System Administrator"]
-const objectOptions = [
-  { id: "obj-001", label: "BLD-A – Main Office" },
-  { id: "obj-002", label: "BLD-B – Residential Block" },
-  { id: "obj-003", label: "BLD-C – Warehouse" },
-]
 
 export default function CreateUserPage() {
   const router = useRouter()
+
+  const objectsQuery = useQuery({
+    queryKey: ["objects"],
+    queryFn: fetchObjects,
+  })
+
+  const objectOptions = ((objectsQuery.data as any[]) ?? []).map((o: any) => ({
+    id: o.ObjectId,
+    label: `${o.Code} – ${o.Description ?? o.FullAddress ?? ""}`,
+  }))
 
   const [userType, setUserType] = useState("")
   const [objectId, setObjectId] = useState("")
@@ -163,23 +170,27 @@ export default function CreateUserPage() {
                       : "border-gray-200 bg-white hover:bg-gray-50"
                   } ${objectId ? "text-gray-900" : "text-gray-400"}`}
                 >
-                  {objectOptions.find((o) => o.id === objectId)?.label || "Select object"}
+                  {objectOptions.find((o: any) => o.id === objectId)?.label || "Select object"}
                   <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform ${showObjectDropdown ? "rotate-180" : ""}`} />
                 </button>
                 {showObjectDropdown && (
                   <>
                     <div className="fixed inset-0 z-10" onClick={() => setShowObjectDropdown(false)} />
-                    <div className="absolute left-0 top-full z-20 mt-1 w-full rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-                      {objectOptions.map((o) => (
-                        <button
-                          key={o.id}
-                          type="button"
-                          onClick={() => { setObjectId(o.id); setShowObjectDropdown(false); setErrors((e) => { const { objectId: _, ...rest } = e; return rest }) }}
-                          className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-50 ${objectId === o.id ? "font-medium text-[#6B1D1D]" : "text-gray-600"}`}
-                        >
-                          {o.label}
-                        </button>
-                      ))}
+                    <div className="absolute left-0 top-full z-20 mt-1 w-full max-h-48 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+                      {objectOptions.length === 0 ? (
+                        <p className="px-3 py-2 text-sm text-gray-400">No objects available</p>
+                      ) : (
+                        objectOptions.map((o: any) => (
+                          <button
+                            key={o.id}
+                            type="button"
+                            onClick={() => { setObjectId(o.id); setShowObjectDropdown(false); setErrors((e) => { const { objectId: _, ...rest } = e; return rest }) }}
+                            className={`w-full px-3 py-2 text-left text-sm hover:bg-gray-50 ${objectId === o.id ? "font-medium text-[#6B1D1D]" : "text-gray-600"}`}
+                          >
+                            {o.label}
+                          </button>
+                        ))
+                      )}
                     </div>
                   </>
                 )}

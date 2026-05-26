@@ -1,0 +1,157 @@
+{
+  "name": "Load Defect Act Jobs from Mirror to Dashboard",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://directus:8055/items/defect_act_jobs",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "fields", "value": "labbis_id" },
+            { "name": "limit", "value": "-1" }
+          ]
+        },
+        "options": {
+          "response": { "response": { "responseFormat": "json" } }
+        }
+      },
+      "id": "fetch_existing",
+      "name": "Fetch Existing Jobs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [220, 0],
+      "credentials": {
+        "httpBearerAuth": { "id": "DIRECTUS_CREDENTIAL_ID", "name": "Directus Admin Token" }
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://directus:8055/items/defect_acts",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "fields", "value": "id" },
+            { "name": "limit", "value": "-1" }
+          ]
+        },
+        "options": {
+          "response": { "response": { "responseFormat": "json" } }
+        }
+      },
+      "id": "fetch_valid_defect_acts",
+      "name": "Fetch Valid DefectActs",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 0],
+      "credentials": {
+        "httpBearerAuth": { "id": "DIRECTUS_CREDENTIAL_ID", "name": "Directus Admin Token" }
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://directus:8055/items/labbis_defect_act_job",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "fields", "value": "DefectActJobId,DefectActId,Description,Amount,Price,UoMId" },
+            { "name": "limit", "value": "-1" }
+          ]
+        },
+        "options": {
+          "response": { "response": { "responseFormat": "json" } }
+        }
+      },
+      "id": "fetch_mirror",
+      "name": "Fetch from Mirror",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 0],
+      "credentials": {
+        "httpBearerAuth": { "id": "DIRECTUS_CREDENTIAL_ID", "name": "Directus Admin Token" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const existingResponse = $('Fetch Existing Jobs').first().json;\nconst existingIds = new Set((existingResponse.data || []).map(d => d.labbis_id));\n\nconst validDefectActs = new Set(($('Fetch Valid DefectActs').first().json.data || []).map(d => d.id));\n\nconst mirrorResponse = $input.first().json;\nconst mirrorItems = mirrorResponse.data || [];\nconst results = [];\n\nfor (const job of mirrorItems) {\n  if (!job.DefectActJobId) continue;\n  if (existingIds.has(job.DefectActJobId)) continue;\n  if (!job.DefectActId || !validDefectActs.has(job.DefectActId)) continue;\n\n  results.push({\n    json: {\n      id: job.DefectActJobId,\n      defect_act_id: job.DefectActId,\n      description: job.Description || null,\n      amount: job.Amount ?? null,\n      price: job.Price ?? null,\n      unit: job.UoMId || null,\n      labbis_id: job.DefectActJobId\n    }\n  });\n}\n\nreturn results;"
+      },
+      "id": "map_fields",
+      "name": "Map + Dedup",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://directus:8055/items/defect_act_jobs",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "response": { "response": { "responseFormat": "json" } }
+        }
+      },
+      "id": "upsert_directus",
+      "name": "Insert to Dashboard",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1100, 0],
+      "credentials": {
+        "httpBearerAuth": { "id": "DIRECTUS_CREDENTIAL_ID", "name": "Directus Admin Token" }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nlet created = 0;\nlet skipped = 0;\nlet errors = 0;\n\nfor (const item of items) {\n  const status = item.json?.statusCode;\n  if (status === 200 || status === 204 || item.json?.data?.id) {\n    created++;\n  } else if (status === 400 && JSON.stringify(item.json).includes('unique')) {\n    skipped++;\n  } else {\n    errors++;\n  }\n}\n\nreturn [{\n  json: {\n    total_processed: items.length,\n    created,\n    skipped,\n    errors,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "summary",
+      "name": "Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1320, 0]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [[{ "node": "Fetch Existing Jobs", "type": "main", "index": 0 }]]
+    },
+    "Fetch Existing Jobs": {
+      "main": [[{ "node": "Fetch Valid DefectActs", "type": "main", "index": 0 }]]
+    },
+    "Fetch Valid DefectActs": {
+      "main": [[{ "node": "Fetch from Mirror", "type": "main", "index": 0 }]]
+    },
+    "Fetch from Mirror": {
+      "main": [[{ "node": "Map + Dedup", "type": "main", "index": 0 }]]
+    },
+    "Map + Dedup": {
+      "main": [[{ "node": "Insert to Dashboard", "type": "main", "index": 0 }]]
+    },
+    "Insert to Dashboard": {
+      "main": [[{ "node": "Summary", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

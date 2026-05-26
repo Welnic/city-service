@@ -19,47 +19,25 @@ import {
   AlertCircle,
   Eye,
 } from "lucide-react"
-import {
-  getApiV1LabbisDefectActOptions,
-  getApiV1LabbisObjectOptions,
-} from "@/generated/api/@tanstack/react-query.gen"
-import type {
-  DefectAct,
-  Object as BuildingObject,
-} from "@/generated/api/types.gen"
+import { fetchDefectActs, fetchObjects } from "@/lib/directus-api"
 
 const MONTH_NAMES = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun",
   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ]
 
-const mockDefects: DefectAct[] = [
-  { DefectActId: "m1", ActNumber: "DA-2025-0847", DefectActDate: "2025-10-24T10:30:00Z", ObjectId: "obj-001", Problem: "Water leakage from roof membrane", Place: "Roof, Section B", Status: "In Progress", SystemosId: "s1", SystGroupId: "g1" },
-  { DefectActId: "m2", ActNumber: "DA-2025-0823", DefectActDate: "2025-10-23T14:15:00Z", ObjectId: "obj-002", Problem: "Elevator maintenance required", Place: "Elevator shaft #2", Status: "Awaiting Approval", SystemosId: "s2", SystGroupId: "g2" },
-  { DefectActId: "m3", ActNumber: "DA-2025-0901", DefectActDate: "2025-10-22T08:00:00Z", ObjectId: "obj-001", Problem: "Broken window panel - 3rd floor", Place: "Floor 3, Unit 12", Status: "Completed", SystemosId: "s3", SystGroupId: "g1" },
-  { DefectActId: "m4", ActNumber: "DA-2025-0789", DefectActDate: "2025-10-21T16:45:00Z", ObjectId: "obj-003", Problem: "Heating system failure in basement", Place: "Basement, Boiler room", Status: "Declined", SystemosId: "s4", SystGroupId: "g3" },
-  { DefectActId: "m5", ActNumber: "DA-2025-0812", DefectActDate: "2025-10-20T09:30:00Z", ObjectId: "obj-002", Problem: "Parking lot drainage blocked", Place: "Underground parking", Status: "Under Review", SystemosId: "s5", SystGroupId: "g2" },
-  { DefectActId: "m6", ActNumber: "DA-2025-0756", DefectActDate: "2025-10-19T11:20:00Z", ObjectId: "obj-001", Problem: "Fire alarm sensor malfunction", Place: "Floor 5, Corridor", Status: "In Progress", SystemosId: "s6", SystGroupId: "g1" },
-  { DefectActId: "m7", ActNumber: "DA-2025-0734", DefectActDate: "2025-09-18T15:00:00Z", ObjectId: "obj-003", Problem: "Cracked facade tiles", Place: "North facade", Status: "Awaiting Approval", SystemosId: "s7", SystGroupId: "g3" },
-  { DefectActId: "m8", ActNumber: "DA-2025-0698", DefectActDate: "2025-09-10T10:00:00Z", ObjectId: "obj-002", Problem: "Intercom system not responding", Place: "Main entrance", Status: "Completed", SystemosId: "s8", SystGroupId: "g2" },
-  { DefectActId: "m9", ActNumber: "DA-2025-0650", DefectActDate: "2025-08-25T14:00:00Z", ObjectId: "obj-001", Problem: "Stairwell lighting failure", Place: "Stairwell B", Status: "Completed", SystemosId: "s9", SystGroupId: "g1" },
-  { DefectActId: "m10", ActNumber: "DA-2025-0620", DefectActDate: "2025-08-12T09:00:00Z", ObjectId: "obj-003", Problem: "Garage door mechanism", Place: "Parking entrance", Status: "Completed", SystemosId: "s10", SystGroupId: "g3" },
-  { DefectActId: "m11", ActNumber: "DA-2025-0590", DefectActDate: "2025-07-20T11:00:00Z", ObjectId: "obj-002", Problem: "Lobby floor tiles cracked", Place: "Ground floor lobby", Status: "Completed", SystemosId: "s11", SystGroupId: "g2" },
-  { DefectActId: "m12", ActNumber: "DA-2025-0540", DefectActDate: "2025-07-05T08:30:00Z", ObjectId: "obj-001", Problem: "Water pipe leak", Place: "Floor 2, Unit 5", Status: "Completed", SystemosId: "s12", SystGroupId: "g1" },
-  { DefectActId: "m13", ActNumber: "DA-2025-0500", DefectActDate: "2025-06-15T10:00:00Z", ObjectId: "obj-003", Problem: "AC unit noise", Place: "Floor 4", Status: "Completed", SystemosId: "s13", SystGroupId: "g3" },
-  { DefectActId: "m14", ActNumber: "DA-2025-0460", DefectActDate: "2025-05-22T13:00:00Z", ObjectId: "obj-002", Problem: "Mailbox lock broken", Place: "Ground floor", Status: "Completed", SystemosId: "s14", SystGroupId: "g2" },
-  { DefectActId: "m15", ActNumber: "DA-2025-0420", DefectActDate: "2025-04-10T09:00:00Z", ObjectId: "obj-001", Problem: "Balcony railing loose", Place: "Floor 6, Unit 18", Status: "Completed", SystemosId: "s15", SystGroupId: "g1" },
-  { DefectActId: "m16", ActNumber: "DA-2025-0380", DefectActDate: "2025-03-18T14:00:00Z", ObjectId: "obj-003", Problem: "Elevator button stuck", Place: "Elevator #1", Status: "Completed", SystemosId: "s16", SystGroupId: "g3" },
-  { DefectActId: "m17", ActNumber: "DA-2025-0350", DefectActDate: "2025-02-25T10:00:00Z", ObjectId: "obj-002", Problem: "Hallway paint peeling", Place: "Floor 3, Corridor", Status: "Completed", SystemosId: "s17", SystGroupId: "g2" },
-  { DefectActId: "m18", ActNumber: "DA-2025-0310", DefectActDate: "2025-01-12T11:00:00Z", ObjectId: "obj-001", Problem: "Front door hinge", Place: "Main entrance", Status: "Completed", SystemosId: "s18", SystGroupId: "g1" },
-  { DefectActId: "m19", ActNumber: "DA-2024-0280", DefectActDate: "2024-12-08T09:00:00Z", ObjectId: "obj-003", Problem: "Gutter overflow", Place: "Roof east side", Status: "Completed", SystemosId: "s19", SystGroupId: "g3" },
-  { DefectActId: "m20", ActNumber: "DA-2024-0250", DefectActDate: "2024-11-20T14:00:00Z", ObjectId: "obj-002", Problem: "Security camera offline", Place: "Parking Level -2", Status: "Completed", SystemosId: "s20", SystGroupId: "g2" },
-]
-
-const mockBuildings: Record<string, { code: string; name: string }> = {
-  "obj-001": { code: "BLD-A", name: "Main Office" },
-  "obj-002": { code: "BLD-B", name: "Residential Block" },
-  "obj-003": { code: "BLD-C", name: "Warehouse" },
+type DefectAct = {
+  DefectActId: string;
+  ActNumber: string | null;
+  DefectActDate: string;
+  ObjectId: string;
+  Problem: string | null;
+  Place: string | null;
+  Status: string;
+  Description?: string | null;
+  Solution?: string | null;
+  SystemosId: string | null;
+  SystGroupId: string | null;
 }
 
 const statusConfig: Record<string, { bg: string; text: string; dot: string; icon: typeof Clock }> = {
@@ -161,10 +139,10 @@ function TrendChart({ data }: { data: { month: string; value: number }[] }) {
           <stop offset="100%" stopColor="#6B1D1D" stopOpacity="0.01" />
         </linearGradient>
       </defs>
-      {yTicks.map((tick) => {
+      {yTicks.map((tick, idx) => {
         const y = padding.top + chartH - (tick / maxVal) * chartH
         return (
-          <g key={tick}>
+          <g key={idx}>
             <line x1={padding.left} y1={y} x2={width - padding.right} y2={y} stroke="#f0f0f0" />
             <text x={padding.left - 6} y={y + 3} textAnchor="end" className="fill-gray-400" fontSize="9">{tick}</text>
           </g>
@@ -185,16 +163,19 @@ function TrendChart({ data }: { data: { month: string; value: number }[] }) {
 }
 
 export default function DashboardPage() {
-  const defectsQuery = useQuery(
-    getApiV1LabbisDefectActOptions({
-      query: { rowsPerPage: 2000 },
-    })
-  )
-  const objectsQuery = useQuery({ ...getApiV1LabbisObjectOptions(), enabled: false })
+  const defectsQuery = useQuery({
+    queryKey: ["defect_acts"],
+    queryFn: () => fetchDefectActs({ limit: 2000 }),
+  })
+  const objectsQuery = useQuery({
+    queryKey: ["objects"],
+    queryFn: fetchObjects,
+  })
 
-  const apiDefects = (defectsQuery.data as Array<DefectAct>) ?? []
-  const defects = apiDefects.length > 0 ? apiDefects : mockDefects
-  const usingMock = apiDefects.length === 0
+  const defects = (defectsQuery.data as DefectAct[]) ?? []
+  const objectMap = new Map(
+    (objectsQuery.data ?? []).map((o: any) => [o.ObjectId, o])
+  )
 
   const agg = useAggregations(defects)
   const isLoading = defectsQuery.isLoading
@@ -204,16 +185,14 @@ export default function DashboardPage() {
     .slice(0, 5)
 
   function getBuildingLabel(objectId: string) {
-    if (usingMock) {
-      const m = mockBuildings[objectId]
-      return m ? `${m.code} – ${m.name}` : objectId
-    }
+    const obj = objectMap.get(objectId)
+    if (obj) return `${obj.Code} – ${obj.FullAddress ?? obj.Description ?? ""}`
     return objectId.slice(0, 8)
   }
 
   function getBuildingCode(objectId: string) {
-    if (usingMock) return mockBuildings[objectId]?.code ?? "—"
-    return objectId.slice(0, 8)
+    const obj = objectMap.get(objectId)
+    return obj?.Code ?? objectId.slice(0, 8)
   }
 
   return (
@@ -458,12 +437,7 @@ export default function DashboardPage() {
             </tbody>
           </table>
         </div>
-        {usingMock && (
-          <p className="mt-2 text-right">
-            <span className="rounded bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-600">Sample data</span>
-          </p>
-        )}
-      </section>
+        </section>
     </div>
   )
 }

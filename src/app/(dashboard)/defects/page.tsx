@@ -18,137 +18,23 @@ import {
   Building2,
   ArrowUpDown,
 } from "lucide-react"
-import {
-  getApiV1LabbisDefectActOptions,
-  getApiV1LabbisObjectOptions,
-} from "@/generated/api/@tanstack/react-query.gen"
-import type {
-  DefectAct,
-  Object as BuildingObject,
-} from "@/generated/api/types.gen"
+import { fetchDefectActs, fetchObjects } from "@/lib/directus-api"
+
+type DefectAct = {
+  DefectActId: string;
+  ActNumber: string | null;
+  DefectActDate: string;
+  ObjectId: string;
+  Problem: string | null;
+  Place: string | null;
+  Status: string;
+  Description?: string | null;
+  Solution?: string | null;
+  SystemosId: string | null;
+  SystGroupId: string | null;
+}
 
 const ROWS_PER_PAGE = 10
-
-const mockDefects: DefectAct[] = [
-  {
-    DefectActId: "d1a1b2c3-0001-4000-8000-000000000001",
-    ActNumber: "DA-2025-0847",
-    DefectActDate: "2025-10-24T10:30:00Z",
-    ObjectId: "obj-001",
-    Problem: "Water leakage from roof membrane",
-    Place: "Roof, Section B",
-    Status: "In Progress",
-    Description: "Active water infiltration during rainfall",
-    Solution: null,
-    SystemosId: "sys-001",
-    SystGroupId: "sg-001",
-    InspectionDate: "2025-10-22T09:00:00Z",
-  },
-  {
-    DefectActId: "d1a1b2c3-0002-4000-8000-000000000002",
-    ActNumber: "DA-2025-0823",
-    DefectActDate: "2025-10-23T14:15:00Z",
-    ObjectId: "obj-002",
-    Problem: "Elevator maintenance required",
-    Place: "Elevator shaft #2",
-    Status: "Awaiting Approval",
-    Description: "Annual inspection overdue",
-    Solution: null,
-    SystemosId: "sys-002",
-    SystGroupId: "sg-002",
-    InspectionDate: null,
-  },
-  {
-    DefectActId: "d1a1b2c3-0003-4000-8000-000000000003",
-    ActNumber: "DA-2025-0901",
-    DefectActDate: "2025-10-22T08:00:00Z",
-    ObjectId: "obj-001",
-    Problem: "Broken window panel - 3rd floor",
-    Place: "Floor 3, Unit 12",
-    Status: "Completed",
-    Description: "Double-glazed window cracked",
-    Solution: "Window replaced with matching specification",
-    SystemosId: "sys-003",
-    SystGroupId: "sg-001",
-    InspectionDate: "2025-10-20T11:00:00Z",
-  },
-  {
-    DefectActId: "d1a1b2c3-0004-4000-8000-000000000004",
-    ActNumber: "DA-2025-0789",
-    DefectActDate: "2025-10-21T16:45:00Z",
-    ObjectId: "obj-003",
-    Problem: "Heating system failure in basement",
-    Place: "Basement, Boiler room",
-    Status: "Declined",
-    Description: "Warranty claim for boiler unit",
-    Solution: null,
-    SystemosId: "sys-004",
-    SystGroupId: "sg-003",
-    InspectionDate: "2025-10-19T14:00:00Z",
-  },
-  {
-    DefectActId: "d1a1b2c3-0005-4000-8000-000000000005",
-    ActNumber: "DA-2025-0812",
-    DefectActDate: "2025-10-20T09:30:00Z",
-    ObjectId: "obj-002",
-    Problem: "Parking lot drainage blocked",
-    Place: "Underground parking, Level -1",
-    Status: "Under Review",
-    Description: "Storm drain clogged causing flooding",
-    Solution: null,
-    SystemosId: "sys-005",
-    SystGroupId: "sg-002",
-    InspectionDate: "2025-10-18T10:00:00Z",
-  },
-  {
-    DefectActId: "d1a1b2c3-0006-4000-8000-000000000006",
-    ActNumber: "DA-2025-0756",
-    DefectActDate: "2025-10-19T11:20:00Z",
-    ObjectId: "obj-001",
-    Problem: "Fire alarm sensor malfunction",
-    Place: "Floor 5, Corridor",
-    Status: "In Progress",
-    Description: "Smoke detector triggering false alarms",
-    Solution: null,
-    SystemosId: "sys-006",
-    SystGroupId: "sg-001",
-    InspectionDate: "2025-10-17T13:00:00Z",
-  },
-  {
-    DefectActId: "d1a1b2c3-0007-4000-8000-000000000007",
-    ActNumber: "DA-2025-0734",
-    DefectActDate: "2025-10-18T15:00:00Z",
-    ObjectId: "obj-003",
-    Problem: "Cracked facade tiles",
-    Place: "North facade, Level 2-3",
-    Status: "Awaiting Approval",
-    Description: "Multiple tiles showing cracks after frost damage",
-    Solution: null,
-    SystemosId: "sys-007",
-    SystGroupId: "sg-003",
-    InspectionDate: null,
-  },
-  {
-    DefectActId: "d1a1b2c3-0008-4000-8000-000000000008",
-    ActNumber: "DA-2025-0698",
-    DefectActDate: "2025-10-17T10:00:00Z",
-    ObjectId: "obj-002",
-    Problem: "Intercom system not responding",
-    Place: "Main entrance",
-    Status: "Completed",
-    Description: "Residents unable to buzz visitors in",
-    Solution: "Intercom controller board replaced",
-    SystemosId: "sys-008",
-    SystGroupId: "sg-002",
-    InspectionDate: "2025-10-15T09:00:00Z",
-  },
-]
-
-const mockBuildings: Record<string, { code: string; name: string }> = {
-  "obj-001": { code: "BLD-A", name: "Main Office" },
-  "obj-002": { code: "BLD-B", name: "Residential Block" },
-  "obj-003": { code: "BLD-C", name: "Warehouse" },
-}
 
 const statusConfig: Record<string, { bg: string; text: string; dot: string }> =
   {
@@ -203,41 +89,28 @@ export default function DefectsPage() {
   const [sortField, setSortField] = useState<"date" | "status">("date")
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc")
 
-  const defectsQuery = useQuery(
-    getApiV1LabbisDefectActOptions({
-      query: {
-        pageNumber,
-        rowsPerPage: ROWS_PER_PAGE,
-        orderBy: "DefectActDate desc",
-      },
-    })
-  )
-
-  const objectsQuery = useQuery({
-    ...getApiV1LabbisObjectOptions(),
-    enabled: false,
+  const defectsQuery = useQuery({
+    queryKey: ["defect_acts", pageNumber],
+    queryFn: () => fetchDefectActs({ limit: ROWS_PER_PAGE, page: pageNumber, sort: "-defect_date" }),
   })
 
-  const apiDefects = (defectsQuery.data as Array<DefectAct>) ?? []
-  const objects = (objectsQuery.data as Array<BuildingObject>) ?? []
+  const objectsQuery = useQuery({
+    queryKey: ["objects"],
+    queryFn: fetchObjects,
+  })
 
-  const defects = apiDefects.length > 0 ? apiDefects : mockDefects
-  const usingMock = apiDefects.length === 0
-
-  const objectMap = new Map(objects.map((o) => [o.ObjectId, o]))
+  const defects = (defectsQuery.data as DefectAct[]) ?? []
+  const objectMap = new Map(
+    (objectsQuery.data ?? []).map((o: any) => [o.ObjectId, o])
+  )
 
   function getBuildingLabel(objectId: string) {
-    if (usingMock) {
-      const mock = mockBuildings[objectId]
-      return mock ? `${mock.code} – ${mock.name}` : objectId
-    }
     const obj = objectMap.get(objectId)
-    if (!obj) return objectId.slice(0, 8) + "..."
-    return obj.Code + (obj.Description ? ` – ${obj.Description}` : "")
+    if (obj) return `${obj.Code} – ${obj.FullAddress ?? obj.Description ?? ""}`
+    return objectId.slice(0, 8) + "..."
   }
 
   function getBuildingCode(objectId: string) {
-    if (usingMock) return mockBuildings[objectId]?.code ?? "—"
     const obj = objectMap.get(objectId)
     return obj?.Code ?? objectId.slice(0, 8)
   }
@@ -602,11 +475,6 @@ export default function DefectsPage() {
               {filtered.length}
             </span>{" "}
             {filtered.length === 1 ? "defect" : "defects"}
-            {usingMock && (
-              <span className="ml-2 rounded bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-600">
-                Sample data
-              </span>
-            )}
           </p>
           <div className="flex items-center gap-1">
             <button
